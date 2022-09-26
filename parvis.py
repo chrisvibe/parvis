@@ -1,4 +1,3 @@
-from os import system, name
 import signal
 import sys
 import numpy as np
@@ -6,7 +5,7 @@ from colorama import Fore, Back, Style
 from datetime import datetime
 import json
 import matplotlib.pyplot as plt
-
+from utils import clear_screen
 
 def get_game_config():
     config = dict() 
@@ -98,12 +97,6 @@ def print_table(config, players, data, rows):
     print('total | ' + ' | '.join(total))
     print('-'*table_width)
     print()
-
-def clear_screen():
-    if name == 'nt':
-        system('cls')
-    else:
-        system('clear')
 
 def save_game(config, players, data):
     with open(config['save_path'], 'w') as f:
