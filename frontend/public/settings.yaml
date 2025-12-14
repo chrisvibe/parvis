@@ -1,0 +1,42 @@
+# Parvis Settings Configuration
+
+display:
+  default_display_nodes: 20
+  font_size: "14px"
+  date_format: "dd/MM/yyyy"  # European format
+  header_left_card: "/cards/Queen_of_hearts_en.svg"
+  header_right_card: "/cards/King_of_spades_en.svg"
+  
+tree:
+  node_radius: 20
+  vertical_spacing: 100
+  horizontal_spacing: 150
+  zoom_enabled: true
+  pan_enabled: true
+  initial_depth: 3  # How many generations to show initially
+  collapse_depth: 2  # Collapse nodes beyond this depth
+  
+game:
+  default_rounds: 10
+  default_bet: 0
+  
+matrix:
+  cell_empty: "#1a1a2e"
+  cell_bet_pending: "#444444"
+  cell_success: "#00ff00"
+  cell_failed: "#ff0000"
+  cell_priority: "#00ffff"
+  cell_priority_border: "3px"
+  cell_border: "1px"
+  
+search:
+  debounce_ms: 300  # Wait 300ms after typing stops before searching
+  min_chars: 0  # Minimum characters before searching (0 = search immediately)
+  
+colors:
+  node_default: "#00ff00"
+  node_selected: "#ffff00"
+  node_hover: "#00ffff"
+  edge_color: "#00ff00"
+  background: "#0a0e27"
+  text: "#00ff00"

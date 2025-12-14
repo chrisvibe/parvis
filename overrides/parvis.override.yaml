@@ -1,0 +1,16 @@
+# Parvis service override for self-hosting infrastructure
+# This connects the frontend to the shared tunnel network
+
+services:
+  frontend:
+    container_name: parvis
+    networks:
+      - default  # Internal network (backend, db)
+      - web      # External tunnel network (shared)
+    ports: !override
+      - "${LOCAL_IP:-192.168.1.123}:3000:3000"  # Local access
+
+networks:
+  web:
+    external: true
+    name: web

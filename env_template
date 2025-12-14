@@ -1,0 +1,10 @@
+# Database Configuration
+POSTGRES_DB=parvis
+POSTGRES_USER=parvis
+POSTGRES_PASSWORD=changeme_secure_password
+
+# Backend Configuration
+CORS_ORIGINS=http://localhost:3000,https://parvis.yourdomain.com
+
+# Frontend Configuration
+REACT_APP_API_URL=http://localhost:8000

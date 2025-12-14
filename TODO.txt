@@ -1,0 +1,122 @@
+1. get rid of Parvis Game and controller in "Play Game" page
+2. add a about page to the right of players page with some text defined under frontend/public/about.txt (or something like this)
+3. atm the "play game" page doesnt load players it says: loading players... (we added this message to debug as i wasnt getting the players in my matrix view)
+this is strange because i can easily select players to make a game, so they can obviously load
+
+
+logs atm:
+
+(base) leon@leon:~/Downloads/parvis/parvis$ docker compose logs
+parvis-db  | 
+parvis-db  | PostgreSQL Database directory appears to contain a database; Skipping initialization
+parvis-db  | 
+parvis-db  | 2025-12-14 12:52:42.808 UTC [1] LOG:  starting PostgreSQL 18.1 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+parvis-db  | 2025-12-14 12:52:42.808 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+parvis-db  | 2025-12-14 12:52:42.808 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+parvis-db  | 2025-12-14 12:52:42.813 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+parvis-db  | 2025-12-14 12:52:42.821 UTC [32] LOG:  database system was shut down at 2025-12-14 12:47:24 UTC
+parvis-db  | 2025-12-14 12:52:42.829 UTC [1] LOG:  database system is ready to accept connections
+parvis-db  | 2025-12-14 12:57:42.921 UTC [30] LOG:  checkpoint starting: time
+parvis-db  | 2025-12-14 12:57:43.651 UTC [30] LOG:  checkpoint complete: wrote 7 buffers (0.0%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.709 s, sync=0.009 s, total=0.731 s; sync files=9, longest=0.005 s, average=0.001 s; distance=2 kB, estimate=2 kB; lsn=0/1C4B758, redo lsn=0/1C4B700
+parvis-backend   | INFO:     Will watch for changes in these directories: ['/app']
+parvis-frontend  | 
+parvis-frontend  | > parvis-frontend@1.0.0 start
+parvis-frontend  | > react-scripts start
+parvis-frontend  | 
+parvis-frontend  | (node:25) [DEP_WEBPACK_DEV_SERVER_ON_AFTER_SETUP_MIDDLEWARE] DeprecationWarning: 'onAfterSetupMiddleware' option is deprecated. Please use the 'setupMiddlewares' option.
+parvis-frontend  | (Use `node --trace-deprecation ...` to show where the warning was created)
+parvis-frontend  | (node:25) [DEP_WEBPACK_DEV_SERVER_ON_BEFORE_SETUP_MIDDLEWARE] DeprecationWarning: 'onBeforeSetupMiddleware' option is deprecated. Please use the 'setupMiddlewares' option.
+parvis-frontend  | Starting the development server...
+parvis-frontend  | 
+parvis-backend   | INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+parvis-backend   | INFO:     Started reloader process [1] using WatchFiles
+parvis-backend   | INFO:     Started server process [8]
+parvis-backend   | INFO:     Waiting for application startup.
+parvis-backend   | INFO:     Application startup complete.
+parvis-backend   | INFO:     172.18.0.1:35700 - "GET /players HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:35710 - "GET /games?active_only=true HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:35704 - "GET /games?active_only=true HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:35692 - "GET /players HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:35700 - "GET /players HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:35692 - "GET /players HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:35710 - "GET /players/1/bet-distribution HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:35704 - "GET /players/1/bet-distribution HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:35692 - "GET /players/1/stats HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:35700 - "GET /players/1/stats HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:35700 - "GET /players HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:35692 - "GET /players HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:48744 - "GET /games?active_only=true HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:35700 - "GET /players HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:35692 - "GET /players HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:48742 - "GET /games?active_only=true HTTP/1.1" 200 OK
+parvis-frontend  | Compiled with warnings.
+parvis-frontend  | 
+parvis-frontend  | [eslint] 
+parvis-frontend  | src/components/FamilyTreeSelector.jsx
+parvis-frontend  |   Line 12:10:  'dimensions' is assigned a value but never used  no-unused-vars
+parvis-frontend  | 
+parvis-frontend  | src/components/GameMatrix.jsx
+parvis-frontend  |   Line 1:27:  'useEffect' is defined but never used  no-unused-vars
+parvis-frontend  | 
+parvis-frontend  | src/pages/Players.jsx
+parvis-frontend  |   Line 5:10:  'getSetting' is defined but never used  no-unused-vars
+parvis-frontend  | 
+parvis-backend   | INFO:     172.18.0.1:47956 - "OPTIONS /games HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:47956 - "POST /games HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:47956 - "GET /games/3/rounds HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:47962 - "GET /games/3/stats HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:49904 - "POST /games/3/finish HTTP/1.1" 200 OK
+parvis-frontend  | Search for the keywords to learn more about each warning.
+parvis-frontend  | To ignore, add // eslint-disable-next-line to the line before.
+parvis-frontend  | 
+parvis-frontend  | WARNING in [eslint] 
+parvis-frontend  | src/components/FamilyTreeSelector.jsx
+parvis-frontend  |   Line 12:10:  'dimensions' is assigned a value but never used  no-unused-vars
+parvis-frontend  | 
+parvis-frontend  | src/components/GameMatrix.jsx
+parvis-backend   | INFO:     172.18.0.1:51326 - "GET /players HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:51326 - "GET /players HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:51326 - "GET /players/1/bet-distribution HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:51318 - "GET /players/1/stats HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:51318 - "GET /players/1/bet-distribution HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:51326 - "GET /players/1/stats HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:51338 - "GET /players HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:51338 - "GET /players HTTP/1.1" 200 OK
+parvis-frontend  |   Line 1:27:  'useEffect' is defined but never used  no-unused-vars
+parvis-frontend  | 
+parvis-frontend  | src/pages/Players.jsx
+parvis-frontend  |   Line 5:10:  'getSetting' is defined but never used  no-unused-vars
+parvis-frontend  | 
+parvis-frontend  | webpack compiled with 1 warning
+parvis-frontend  | Compiling...
+parvis-frontend  | Compiled with warnings.
+parvis-frontend  | 
+parvis-frontend  | [eslint] 
+parvis-frontend  | src/components/FamilyTreeSelector.jsx
+parvis-frontend  |   Line 12:10:  'dimensions' is assigned a value but never used  no-unused-vars
+parvis-frontend  | 
+parvis-frontend  | src/components/GameMatrix.jsx
+parvis-backend   | INFO:     172.18.0.1:51346 - "GET /games?active_only=true HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:51338 - "GET /players HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:51346 - "GET /games?active_only=true HTTP/1.1" 200 OK
+parvis-backend   | INFO:     172.18.0.1:51338 - "GET /players HTTP/1.1" 200 OK
+parvis-frontend  |   Line 1:27:  'useEffect' is defined but never used  no-unused-vars
+parvis-frontend  | 
+parvis-frontend  | src/pages/Players.jsx
+parvis-frontend  |   Line 5:10:  'getSetting' is defined but never used  no-unused-vars
+parvis-frontend  | 
+parvis-frontend  | Search for the keywords to learn more about each warning.
+parvis-frontend  | To ignore, add // eslint-disable-next-line to the line before.
+parvis-frontend  | 
+parvis-frontend  | WARNING in [eslint] 
+parvis-frontend  | src/components/FamilyTreeSelector.jsx
+parvis-frontend  |   Line 12:10:  'dimensions' is assigned a value but never used  no-unused-vars
+parvis-frontend  | 
+parvis-frontend  | src/components/GameMatrix.jsx
+parvis-frontend  |   Line 1:27:  'useEffect' is defined but never used  no-unused-vars
+parvis-frontend  | 
+parvis-frontend  | src/pages/Players.jsx
+parvis-frontend  |   Line 5:10:  'getSetting' is defined but never used  no-unused-vars
+parvis-frontend  | 
+parvis-frontend  | webpack compiled with 1 warning
+
