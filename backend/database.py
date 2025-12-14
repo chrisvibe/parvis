@@ -28,6 +28,7 @@ class Player(Base):
     last_name = Column(String)
     birthdate = Column(Date)
     registration_date = Column(Date, default=datetime.utcnow)
+    last_game_date = Column(DateTime, nullable=True)  # Track most recent game
     
     # Relationships
     game_participations = relationship("GamePlayer", back_populates="player")
@@ -51,8 +52,9 @@ class Game(Base):
     notes = Column(String)
     location = Column(String)
     total_rounds = Column(Integer)
-    current_round = Column(Integer, default=0)
+    current_round = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
+    is_valid = Column(Boolean, default=False)  # Only true when finished successfully
     
     players = relationship("GamePlayer", back_populates="game")
     rounds = relationship("Round", back_populates="game")

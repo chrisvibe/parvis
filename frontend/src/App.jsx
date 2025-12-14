@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react
 import GamePlay from './pages/GamePlay';
 import Stats from './pages/Stats';
 import Players from './pages/Players';
+import About from './pages/About';
 import { getSetting } from './utils/settings';
 
 function Navigation() {
@@ -32,6 +33,9 @@ function Navigation() {
         <Link to="/players" className={`button ${location.pathname === '/players' ? 'active' : ''}`}>
           PLAYERS
         </Link>
+        <Link to="/about" className={`button ${location.pathname === '/about' ? 'active' : ''}`}>
+          ABOUT
+        </Link>
       </div>
     </nav>
   );
@@ -46,6 +50,7 @@ function App() {
           <Route path="/" element={<GamePlay />} />
           <Route path="/stats" element={<Stats />} />
           <Route path="/players" element={<Players />} />
+          <Route path="/about" element={<About />} />
         </Routes>
       </div>
     </Router>

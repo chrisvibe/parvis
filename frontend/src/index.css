@@ -144,6 +144,16 @@ button.active {
   color: #0a0e27;
 }
 
+button.success {
+  border-color: #00ff00;
+  color: #00ff00;
+}
+
+button.success:hover {
+  background: #00ff00;
+  color: #0a0e27;
+}
+
 button.danger {
   border-color: #ff0000;
   color: #ff0000;
@@ -152,6 +162,12 @@ button.danger {
 button.danger:hover {
   background: #ff0000;
   color: #fff;
+}
+
+.game-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 
 /* Cards */

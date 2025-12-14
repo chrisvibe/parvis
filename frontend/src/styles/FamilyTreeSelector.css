@@ -113,14 +113,20 @@
   stroke-width: 2 !important;
 }
 
+/* Hide links FROM invisible root using class */
+.invisible-root-link {
+  stroke: none !important;
+  display: none !important;
+}
+
 .rd3t-node circle {
   fill: #00ff00 !important;
   stroke: #00ff00 !important;
 }
 
 .rd3t-node text {
-  fill: #00ff00 !important;
   font-family: 'Courier New', monospace !important;
+  /* Don't override fill color - let custom renderer control it */
 }
 
 .rd3t-leaf-node circle,

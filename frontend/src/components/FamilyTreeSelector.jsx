@@ -34,17 +34,21 @@ function FamilyTreeSelector({ players, selectedPlayerIds, onSelectionChange }) {
       return [];
     }
     
-    let playersToShow = players;
+    let idsToShow = new Set();
     
     // If no search term, show only recent players
     if (!debouncedSearchTerm) {
-      playersToShow = getRecentPlayers(players, displayNodes);
-      console.log(`Showing ${playersToShow.length} recent players out of ${players.length} total`);
+      const recentPlayers = getRecentPlayers(players, displayNodes);
+      recentPlayers.forEach(p => idsToShow.add(p.id));
+      console.log(`Showing ${recentPlayers.length} recent players out of ${players.length} total`);
     } else {
       console.log(`Searching for: ${debouncedSearchTerm}`);
+      // When searching, show all matching players
+      players.forEach(p => idsToShow.add(p.id));
     }
     
-    const familyTree = buildFamilyTree(playersToShow, debouncedSearchTerm);
+    // Build full tree with all players, then filter to show only selected IDs
+    const familyTree = buildFamilyTree(players, debouncedSearchTerm, idsToShow);
     console.log('Family tree built:', familyTree);
     
     const d3Tree = convertToD3TreeFormat(familyTree);
@@ -66,12 +70,23 @@ function FamilyTreeSelector({ players, selectedPlayerIds, onSelectionChange }) {
 
   // Custom node rendering
   const renderCustomNode = ({ nodeDatum, toggleNode }) => {
+    // Render invisible root but make it transparent
+    const isInvisible = nodeDatum.attributes.isInvisible;
+    
+    if (isInvisible) {
+      return (
+        <g className="invisible-root">
+          <circle r={0} fill="none" />
+        </g>
+      );
+    }
+    
     const isSelected = selectedPlayerIds.includes(nodeDatum.attributes.id);
     const fillColor = isSelected ? colors.node_selected : colors.node_default;
     
     return (
       <g onClick={() => handleNodeClick({ data: nodeDatum })}>
-        {/* Filled circle for all nodes */}
+        {/* Filled circle */}
         <circle
           r={nodeRadius}
           fill={fillColor}
@@ -80,16 +95,19 @@ function FamilyTreeSelector({ players, selectedPlayerIds, onSelectionChange }) {
           style={{ cursor: 'pointer' }}
         />
         
-        {/* Label always to the right */}
+        {/* Text INSIDE the circle */}
         <text
-          fill={colors.text}
+          fill="#0a0e27"
           strokeWidth="0"
-          x={nodeRadius + 10}
+          x="0"
           y="5"
+          textAnchor="middle"
           style={{ 
             fontFamily: 'Courier New, monospace',
-            fontSize: '14px',
-            cursor: 'pointer'
+            fontSize: '12px',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            pointerEvents: 'none'
           }}
         >
           {nodeDatum.name}
@@ -105,6 +123,14 @@ function FamilyTreeSelector({ players, selectedPlayerIds, onSelectionChange }) {
         </title>
       </g>
     );
+  };
+
+  // Custom path class function to mark links from invisible root
+  const pathClassFunc = (linkData) => {
+    if (linkData.source.data.attributes?.isInvisible) {
+      return 'invisible-root-link';
+    }
+    return '';
   };
 
   // Measure container
@@ -170,12 +196,13 @@ function FamilyTreeSelector({ players, selectedPlayerIds, onSelectionChange }) {
         </div>
 
         <div id="tree-container" className="tree-container">
-          {treeData.length > 0 ? (
+          {treeData && treeData.name !== undefined ? (
             <Tree
               data={treeData}
               translate={translate}
               orientation="vertical"
               pathFunc="step"
+              pathClassFunc={pathClassFunc}
               separation={{ siblings: 1.5, nonSiblings: 2 }}
               nodeSize={{ x: 200, y: 100 }}
               renderCustomNodeElement={renderCustomNode}
@@ -183,6 +210,7 @@ function FamilyTreeSelector({ players, selectedPlayerIds, onSelectionChange }) {
               enableLegacyTransitions={true}
               transitionDuration={300}
               depthFactor={100}
+              collapsible={false}
             />
           ) : (
             <div className="empty-tree">

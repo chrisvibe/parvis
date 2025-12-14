@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -30,7 +30,7 @@ def startup():
 @app.get("/players", response_model=List[schemas.Player])
 def get_players(db: Session = Depends(get_db)):
     players = db.query(Player).all()
-    # Add parent_ids to response
+    # Add parent_ids and last_game_date to response
     result = []
     for player in players:
         player_dict = {
@@ -41,6 +41,7 @@ def get_players(db: Session = Depends(get_db)):
             "last_name": player.last_name,
             "birthdate": player.birthdate,
             "registration_date": player.registration_date,
+            "last_game_date": player.last_game_date,
             "parent_ids": [p.id for p in player.parents]
         }
         result.append(player_dict)
@@ -150,21 +151,29 @@ def get_game(game_id: int, db: Session = Depends(get_db)):
 
 @app.post("/games", response_model=schemas.Game)
 def create_game(game_data: schemas.GameCreate, db: Session = Depends(get_db)):
+    from datetime import datetime
+    
     # Create game
     game = Game(
         total_rounds=game_data.total_rounds,
         game_type=game_data.game_type,
         notes=game_data.notes,
-        location=game_data.location
+        location=game_data.location,
+        date=datetime.utcnow()
     )
     db.add(game)
     db.commit()
     db.refresh(game)
     
-    # Add players
+    # Add players and update their last_game_date
     for player_id in game_data.player_ids:
         game_player = GamePlayer(game_id=game.id, player_id=player_id)
         db.add(game_player)
+        
+        # Update player's last_game_date
+        player = db.query(Player).filter(Player.id == player_id).first()
+        if player:
+            player.last_game_date = game.date
     
     db.commit()
     db.refresh(game)
@@ -177,8 +186,54 @@ def finish_game(game_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Game not found")
     
     game.is_active = False
+    game.is_valid = True  # Mark as valid/completed
     db.commit()
-    return {"message": "Game finished"}
+    return {"message": "Game finished successfully"}
+
+@app.post("/games/{game_id}/cancel")
+def cancel_game(game_id: int, db: Session = Depends(get_db)):
+    game = db.query(Game).filter(Game.id == game_id).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    game.is_active = False
+    game.is_valid = False  # Mark as cancelled/invalid
+    db.commit()
+    return {"message": "Game cancelled"}
+
+@app.post("/games/{game_id}/adjust-rounds")
+def adjust_rounds(game_id: int, new_total: int = Query(...), db: Session = Depends(get_db)):
+    game = db.query(Game).filter(Game.id == game_id).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    if new_total < 1:
+        raise HTTPException(status_code=400, detail="Total rounds must be at least 1")
+    
+    game.total_rounds = new_total
+    
+    # Get number of players in game
+    player_count = db.query(GamePlayer).filter(GamePlayer.game_id == game_id).count()
+    
+    # Find the highest round that has complete data (all players have entries)
+    highest_complete_round = 0
+    for round_num in range(1, new_total + 1):
+        rounds_count = db.query(Round).filter(
+            Round.game_id == game_id,
+            Round.round_number == round_num
+        ).count()
+        
+        if rounds_count == player_count:
+            highest_complete_round = round_num
+        else:
+            break  # Stop at first incomplete round
+    
+    # Set current_round to the next round after the highest complete round
+    # But cap at new_total
+    game.current_round = min(highest_complete_round + 1, new_total)
+    
+    db.commit()
+    return {"message": f"Total rounds adjusted to {new_total}", "new_total": new_total}
 
 # ============================================================================
 # ROUNDS
@@ -239,16 +294,20 @@ def update_round(game_id: int, round_id: int, bet: int, success: bool, db: Sessi
 @app.post("/games/{game_id}/rounds/upsert")
 def upsert_round(
     game_id: int,
-    round_number: int,
-    player_id: int, 
-    bet: int,
-    success: bool,
+    round_number: int = Query(...),
+    player_id: int = Query(...), 
+    bet: int = Query(...),
+    success: bool = Query(...),
     db: Session = Depends(get_db)
 ):
     """Create or update a single round entry"""
     game = db.query(Game).filter(Game.id == game_id).first()
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
+    
+    # Validate bet range: 0 to current_round
+    if bet < 0 or bet > round_number:
+        raise HTTPException(status_code=400, detail=f"Bet must be between 0 and {round_number}")
     
     # Find existing round
     round_entry = db.query(Round).filter(
@@ -303,28 +362,46 @@ def get_game_rounds(game_id: int, db: Session = Depends(get_db)):
 
 @app.get("/games/{game_id}/stats", response_model=List[schemas.GameStats])
 def get_game_stats(game_id: int, db: Session = Depends(get_db)):
-    stats = db.query(
-        Round.player_id,
-        Player.alias,
-        func.sum(Round.score).label('total_score'),
-        func.count(Round.id).label('rounds_played'),
-        func.sum(func.cast(Round.success, Integer)).label('successful_bets'),
-        func.avg(Round.bet).label('average_bet')
-    ).join(Player).filter(Round.game_id == game_id).group_by(Round.player_id, Player.alias).all()
+    # Get game to check total_rounds
+    game = db.query(Game).filter(Game.id == game_id).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
     
-    return [
-        schemas.GameStats(
+    # Get all players in the game
+    game_players = db.query(GamePlayer).filter(GamePlayer.game_id == game_id).all()
+    
+    result = []
+    for gp in game_players:
+        # Get player info
+        player = db.query(Player).filter(Player.id == gp.player_id).first()
+        if not player:
+            continue
+            
+        # Get stats from rounds (ONLY within game.total_rounds)
+        rounds = db.query(Round).filter(
+            Round.game_id == game_id,
+            Round.player_id == gp.player_id,
+            Round.round_number <= game.total_rounds  # Filter by adjusted total
+        ).all()
+        
+        total_score = sum(r.score or 0 for r in rounds)
+        rounds_played = len(rounds)
+        successful_bets = sum(1 for r in rounds if r.success)
+        failed_bets = rounds_played - successful_bets
+        average_bet = sum(r.bet for r in rounds) / rounds_played if rounds_played > 0 else 0.0
+        
+        result.append(schemas.GameStats(
             game_id=game_id,
-            player_id=s.player_id,
-            player_alias=s.alias,
-            total_score=s.total_score or 0,
-            rounds_played=s.rounds_played,
-            successful_bets=s.successful_bets or 0,
-            failed_bets=(s.rounds_played - (s.successful_bets or 0)),
-            average_bet=float(s.average_bet) if s.average_bet else 0.0
-        )
-        for s in stats
-    ]
+            player_id=player.id,
+            player_alias=player.alias,
+            total_score=total_score,
+            rounds_played=rounds_played,
+            successful_bets=successful_bets,
+            failed_bets=failed_bets,
+            average_bet=average_bet
+        ))
+    
+    return result
 
 @app.get("/players/{player_id}/stats", response_model=schemas.PlayerStats)
 def get_player_stats(player_id: int, db: Session = Depends(get_db)):

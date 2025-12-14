@@ -15,6 +15,7 @@ function GamePlay() {
   // New game form
   const [selectedPlayers, setSelectedPlayers] = useState([]);
   const [totalRounds, setTotalRounds] = useState(getSetting('game.default_rounds', 10));
+  const [gameNotes, setGameNotes] = useState('');
 
   useEffect(() => {
     loadData();
@@ -45,10 +46,12 @@ function GamePlay() {
 
   const loadGameData = async (gameId) => {
     try {
-      const [roundsRes, statsRes] = await Promise.all([
+      const [gameRes, roundsRes, statsRes] = await Promise.all([
+        gamesApi.get(gameId),
         gamesApi.getRounds(gameId),
         gamesApi.getStats(gameId)
       ]);
+      setActiveGame(gameRes.data);  // Update game object with new current_round
       setRounds(roundsRes.data);
       setGameStats(statsRes.data);
     } catch (error) {
@@ -66,13 +69,23 @@ function GamePlay() {
       const gameData = {
         player_ids: selectedPlayers,
         total_rounds: parseInt(totalRounds),
+        notes: gameNotes || null
       };
       const res = await gamesApi.create(gameData);
       setActiveGame(res.data);
       setRounds([]);
-      setSelectedPlayers([]);
       
-      // Immediately load game data
+      // Initialize Round 1 with bet=0 for all players (batched)
+      await Promise.all(
+        selectedPlayers.map(playerId =>
+          gamesApi.upsertRound(res.data.id, 1, playerId, 0, false)
+        )
+      );
+      
+      setSelectedPlayers([]);
+      setGameNotes('');
+      
+      // Load game data ONCE after all initializations
       await loadGameData(res.data.id);
     } catch (error) {
       console.error('Error creating game:', error);
@@ -103,7 +116,7 @@ function GamePlay() {
   const finishGame = async () => {
     if (!activeGame) return;
     
-    if (window.confirm('Finish this game? No more rounds can be added.')) {
+    if (window.confirm('Finish this game? This will mark it as complete and count toward statistics.')) {
       try {
         await gamesApi.finish(activeGame.id);
         setActiveGame(null);
@@ -116,14 +129,51 @@ function GamePlay() {
     }
   };
 
+  const cancelGame = async () => {
+    if (!activeGame) return;
+    
+    if (window.confirm('Cancel this game? It will not count toward statistics.')) {
+      try {
+        await gamesApi.cancel(activeGame.id);
+        setActiveGame(null);
+        setRounds([]);
+        setGameStats([]);
+      } catch (error) {
+        console.error('Error cancelling game:', error);
+        alert('Error cancelling game');
+      }
+    }
+  };
+
+  const adjustRounds = async () => {
+    if (!activeGame) return;
+    
+    const newTotal = prompt(`Adjust total rounds (currently ${activeGame.total_rounds}):`, activeGame.total_rounds);
+    if (newTotal !== null) {
+      const num = parseInt(newTotal);
+      if (isNaN(num) || num < 1) {
+        alert('Please enter a valid number (at least 1)');
+        return;
+      }
+      
+      try {
+        await gamesApi.adjustRounds(activeGame.id, num);
+        await loadGameData(activeGame.id);
+      } catch (error) {
+        console.error('Error adjusting rounds:', error);
+        alert('Error adjusting rounds');
+      }
+    }
+  };
+
   // Chart data
   const chartData = React.useMemo(() => {
-    if (!gameStats.length || !rounds.length) return [];
+    if (!gameStats.length || !rounds.length || !activeGame) return [];
 
-    const maxRound = Math.max(...rounds.map(r => r.round_number));
+    // Use game.total_rounds instead of maxRound from data
     const data = [];
 
-    for (let i = 1; i <= maxRound; i++) {
+    for (let i = 1; i <= activeGame.total_rounds; i++) {
       const point = { round: i };
       
       gameStats.forEach(stat => {
@@ -137,7 +187,7 @@ function GamePlay() {
     }
 
     return data;
-  }, [rounds, gameStats]);
+  }, [rounds, gameStats, activeGame]);
 
   const colors = ['#00ff00', '#ffff00', '#00ffff', '#ff00ff', '#ff8800'];
 
@@ -147,8 +197,6 @@ function GamePlay() {
 
   return (
     <div className="page">
-      <h1>🎮 PARVIS GAME</h1>
-
       {!activeGame ? (
         <div className="game-setup">
           <h2>New Game Setup</h2>
@@ -161,6 +209,16 @@ function GamePlay() {
               max="50"
               value={totalRounds}
               onChange={(e) => setTotalRounds(parseInt(e.target.value))}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Game Notes (optional):</label>
+            <input
+              type="text"
+              placeholder="e.g., Tournament 2025"
+              value={gameNotes}
+              onChange={(e) => setGameNotes(e.target.value)}
             />
           </div>
 
@@ -180,9 +238,17 @@ function GamePlay() {
             <h2>
               Game #{activeGame.id} - Round {activeGame.current_round}/{activeGame.total_rounds}
             </h2>
-            <button onClick={finishGame} className="danger">
-              🏁 Finish Game
-            </button>
+            <div className="game-controls">
+              <button onClick={adjustRounds} className="button">
+                ⚙️ Adjust Rounds
+              </button>
+              <button onClick={cancelGame} className="button danger">
+                ❌ Cancel Game
+              </button>
+              <button onClick={finishGame} className="button success">
+                🏁 Finish Game
+              </button>
+            </div>
           </div>
 
           <GameMatrix
@@ -190,6 +256,7 @@ function GamePlay() {
             players={gameStats}
             rounds={rounds}
             onRoundsUpdate={handleRoundUpdate}
+            onReload={() => loadGameData(activeGame.id)}
           />
 
           {chartData.length > 0 && (

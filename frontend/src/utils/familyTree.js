@@ -1,23 +1,15 @@
 /**
  * Build hierarchical tree structure from flat player list
  * Players are sorted by age (oldest first) within each generation
+ * @param {Array} players - All players (needed for building complete relationships)
+ * @param {string} searchTerm - Optional search filter
+ * @param {Set} idsToShow - Set of player IDs to show (when not searching)
  */
 
-export const buildFamilyTree = (players, searchTerm = '') => {
+export const buildFamilyTree = (players, searchTerm = '', idsToShow = null) => {
   if (!players || players.length === 0) return [];
   
-  // Filter by search term if provided
-  const filteredPlayers = searchTerm
-    ? players.filter(p => 
-        p.alias.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (p.first_name && p.first_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (p.last_name && p.last_name.toLowerCase().includes(searchTerm.toLowerCase()))
-      )
-    : players;
-  
-  if (filteredPlayers.length === 0) return [];
-  
-  // Create lookup map
+  // Create lookup map with ALL players (so relationships work)
   const playerMap = new Map();
   players.forEach(p => playerMap.set(p.id, { ...p, children: [] }));
   
@@ -44,21 +36,29 @@ export const buildFamilyTree = (players, searchTerm = '') => {
     });
   });
   
-  // Find root nodes (no parents)
-  const roots = Array.from(playerMap.values()).filter(p => 
+  // Find root nodes (no parents) - from ALL players
+  const allRoots = Array.from(playerMap.values()).filter(p => 
     !p.parent_ids || p.parent_ids.length === 0
   );
   
   // Sort roots by age
-  roots.sort((a, b) => {
+  allRoots.sort((a, b) => {
     if (!a.birthdate && !b.birthdate) return 0;
     if (!a.birthdate) return 1;
     if (!b.birthdate) return -1;
     return new Date(a.birthdate) - new Date(b.birthdate);
   });
   
-  // If searching, filter tree to only show matching nodes and their ancestors/descendants
+  // If searching, show matching nodes and their families
   if (searchTerm) {
+    const filteredPlayers = players.filter(p => 
+      p.alias.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (p.first_name && p.first_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (p.last_name && p.last_name.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+    
+    if (filteredPlayers.length === 0) return [];
+    
     const matchingIds = new Set(filteredPlayers.map(p => p.id));
     const relevantIds = new Set();
     
@@ -91,14 +91,21 @@ export const buildFamilyTree = (players, searchTerm = '') => {
         }));
     };
     
-    return filterTree(roots);
+    return filterTree(allRoots);
   }
   
-  return roots;
+  // If idsToShow provided (no search), filter roots to only recent players
+  // This shows a "forest" of disconnected trees for recent players
+  if (idsToShow && idsToShow.size > 0) {
+    return allRoots.filter(root => idsToShow.has(root.id));
+  }
+  
+  return allRoots;
 };
 
 /**
  * Convert family tree to react-d3-tree format
+ * If multiple roots (forest), wraps them under an invisible root
  */
 export const convertToD3TreeFormat = (familyTree) => {
   const convert = (node) => ({
@@ -114,7 +121,19 @@ export const convertToD3TreeFormat = (familyTree) => {
     children: node.children.map(convert)
   });
   
-  return familyTree.map(convert);
+  const converted = familyTree.map(convert);
+  
+  // If multiple roots (forest), wrap in an invisible parent
+  if (converted.length > 1) {
+    return {
+      name: '',  // Empty name - invisible node
+      attributes: { id: -1, isInvisible: true },
+      children: converted
+    };
+  }
+  
+  // Single tree or no trees
+  return converted.length > 0 ? converted[0] : { name: 'No players', attributes: { id: -1 }, children: [] };
 };
 
 const calculateAge = (birthdate) => {
@@ -131,10 +150,14 @@ const calculateAge = (birthdate) => {
 };
 
 /**
- * Get recent players (sorted by registration date)
+ * Get recent players (sorted by last game date, then registration date)
  */
 export const getRecentPlayers = (players, limit = 20) => {
   return [...players]
-    .sort((a, b) => new Date(b.registration_date) - new Date(a.registration_date))
+    .sort((a, b) => {
+      const aDate = a.last_game_date ? new Date(a.last_game_date) : new Date(a.registration_date);
+      const bDate = b.last_game_date ? new Date(b.last_game_date) : new Date(b.registration_date);
+      return bDate - aDate;
+    })
     .slice(0, limit);
 };

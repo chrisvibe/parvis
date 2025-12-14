@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { getSetting } from '../utils/settings';
+import { gamesApi } from '../api';
 import '../styles/GameMatrix.css';
 
 function GameMatrix({ 
   game, 
   players, 
   rounds, 
-  onRoundsUpdate 
+  onRoundsUpdate,
+  onReload  // Add reload callback
 }) {
   const [mode, setMode] = useState('bets'); // 'bets' or 'results'
   const [editingCell, setEditingCell] = useState(null);
@@ -79,28 +81,28 @@ function GameMatrix({
   const updateCell = async (roundIdx, playerIdx, bet, success) => {
     const roundNumber = roundIdx + 1;
     const playerId = players[playerIdx].player_id;
-    const score = success ? (10 + parseInt(bet)) : 0;
     
-    // Find existing round or create new
-    const existingRound = rounds.find(
-      r => r.round_number === roundNumber && r.player_id === playerId
-    );
-
     const roundData = {
-      round_number: roundNumber,
-      player_id: playerId,
+      round: roundNumber,      // ✅ Fixed key name
+      playerId: playerId,       // ✅ Fixed key name
       bet: parseInt(bet),
-      success: success,
-      score: score
+      success: success
     };
 
-    await onRoundsUpdate(roundData, existingRound?.id);
+    await onRoundsUpdate(roundData);
   };
 
   const handleInputChange = (e) => {
     const value = e.target.value;
+    // Only allow digits and empty
     if (value === '' || /^\d+$/.test(value)) {
-      setEditValue(value);
+      const numValue = parseInt(value);
+      const roundNumber = editingCell.round + 1;
+      
+      // Validate: bet must be 0 to current round number
+      if (value === '' || (numValue >= 0 && numValue <= roundNumber)) {
+        setEditValue(value);
+      }
     }
   };
 
@@ -125,16 +127,23 @@ function GameMatrix({
   const getCellStyle = (roundIdx, playerIdx, cell) => {
     const matrixColors = getSetting('matrix', {});
     const isPriority = (roundIdx % players.length) === playerIdx;
+    const isFutureRound = (roundIdx + 1) > game.current_round;
     
     let backgroundColor = matrixColors.cell_empty;
     let color = '#00ff00';
     let borderWidth = matrixColors.cell_border || '1px';
+    let borderColor = '#00ff00';
     
     if (isPriority) {
       borderWidth = matrixColors.cell_priority_border || '3px';
+      borderColor = matrixColors.cell_priority || '#00ffff';
     }
     
-    if (cell.bet !== null) {
+    // Disable future rounds
+    if (isFutureRound) {
+      backgroundColor = '#0a0a0a';
+      color = '#333';
+    } else if (cell.bet !== null) {
       if (cell.success) {
         backgroundColor = matrixColors.cell_success;
         color = '#0a0e27';
@@ -151,15 +160,48 @@ function GameMatrix({
       backgroundColor,
       color,
       borderWidth,
-      borderColor: isPriority ? matrixColors.cell_priority : '#00ff00'
+      borderColor,
+      borderStyle: 'solid',
+      pointerEvents: isFutureRound ? 'none' : 'auto',
+      opacity: isFutureRound ? 0.3 : 1
     };
+  };
+
+  const handleNextRound = async () => {
+    if (!game || game.current_round >= game.total_rounds) return;
+    
+    const nextRound = game.current_round + 1;
+    
+    // Initialize all players with bet=0, success=false for next round
+    await Promise.all(
+      players.map(player => 
+        gamesApi.upsertRound(game.id, nextRound, player.player_id, 0, false)
+      )
+    );
+    
+    // Reload data ONCE after all updates
+    if (onReload) {
+      await onReload();
+    }
+    
+    // Switch back to edit bets mode for the new round
+    setMode('bets');
   };
 
   const getCellDisplay = (cell) => {
     if (cell.bet === null) return '-';
+    
+    // In edit bets mode, show the bet value
+    if (mode === 'bets') {
+      return cell.bet;
+    }
+    
+    // In results mode, show the score
     if (cell.score !== null) {
       return cell.success ? cell.score : '0';
     }
+    
+    // Fallback
     return cell.bet;
   };
 
@@ -188,7 +230,16 @@ function GameMatrix({
         >
           ✓ MARK RESULTS
         </button>
+        {mode === 'results' && game.current_round < game.total_rounds && (
+          <button 
+            onClick={handleNextRound}
+            style={{ marginLeft: 'auto', background: '#00ff00', color: '#0a0e27' }}
+          >
+            ⏭️ NEXT ROUND ({game.current_round + 1}/{game.total_rounds})
+          </button>
+        )}
         <div className="mode-indicator">
+          Current Round: {game.current_round}/{game.total_rounds} | 
           Mode: {mode === 'bets' ? 'Bet Entry' : 'Mark Success/Fail (double-click)'}
         </div>
       </div>
@@ -206,7 +257,16 @@ function GameMatrix({
           <tbody>
             {matrix.map((row, roundIdx) => (
               <tr key={roundIdx}>
-                <td className="round-label">{roundIdx + 1}</td>
+                <td 
+                  className="round-label"
+                  style={{
+                    backgroundColor: (roundIdx + 1) === game.current_round ? '#ffff00' : undefined,
+                    color: (roundIdx + 1) === game.current_round ? '#0a0e27' : undefined,
+                    fontWeight: (roundIdx + 1) === game.current_round ? 'bold' : undefined
+                  }}
+                >
+                  {roundIdx + 1}
+                </td>
                 {row.map((cell, playerIdx) => {
                   const isEditing = editingCell?.round === roundIdx && editingCell?.player === playerIdx;
                   const isPriority = (roundIdx % players.length) === playerIdx;

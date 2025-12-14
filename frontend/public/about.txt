@@ -1,0 +1,23 @@
+# About Parvis
+
+Parvis is a betting game tracker designed to record and analyze games played among friends and family.
+
+## How to Play
+
+Players make bets each round. A successful bet scores 10 points plus the bet amount. A failed bet scores 0 points.
+
+The player with the highest total score after all rounds wins!
+
+## Features
+
+- **Family Tree Player Selection**: Visualize relationships and select players easily
+- **Game Matrix**: Enter bets and results in a spreadsheet-like interface
+- **Priority System**: The diagonal indicates who gets the tiebreaker each round
+- **Statistics**: Track win rates, betting patterns, and performance over time
+- **Retro Terminal Aesthetic**: Classic green phosphor CRT styling
+
+## Created By
+
+This application was built to preserve game history and make friendly competition more engaging.
+
+Enjoy tracking your games! 🎮
