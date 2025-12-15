@@ -1,13 +1,6 @@
-bug: made game with 10 rounds, filled data to 4 rounds, changed rounds to 3 (looks correct in both Current Standing and Score Progress visualizations), changed rounds to 5, and Current Progress was stuck at 3 rounds, but Score Progress updated correctly. The matrix and all other parts seemed to work as they should.
-when i finished the game and looked at historical game data the 3 round current progress table was there and not the 4 round i was expecting. probably the root cause is above...
-
-historical game lookup should allow search for game timestamp too, not just notes, and game id
-
-remove tick boxes in parent selection in player registration. this should be like the historical game lookup search, each time u select one it populated a list under.
-
-
-
-
-
+make sure statistics make sense, do we need rounds in final standings?
+add link in about to historical scores immich albums
+need protection with user login somehow
+need a way to backup and restore database
 
 

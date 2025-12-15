@@ -36,6 +36,7 @@ class Game(BaseModel):
     total_rounds: int
     current_round: int
     is_active: bool
+    is_valid: bool
     
     class Config:
         from_attributes = True

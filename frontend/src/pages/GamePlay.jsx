@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { gamesApi, playersApi } from '../api';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import FamilyTreeSelector from '../components/FamilyTreeSelector';
 import GameMatrix from '../components/GameMatrix';
 import { getSetting } from '../utils/settings';
 
 function GamePlay() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const loadingRef = React.useRef(false); // Track if we're already loading
   const [players, setPlayers] = useState([]);
   const [activeGame, setActiveGame] = useState(null);
   const [rounds, setRounds] = useState([]);
@@ -27,29 +29,46 @@ function GamePlay() {
 
   // Reload when navigating to this route (e.g., from Stats after editing)
   useEffect(() => {
-    loadData();
+    // Only reload if we're actually on the root route
+    if (location.pathname === '/') {
+      console.log('Route changed to play, reloading...');
+      loadData();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname]);
+  }, [location.key]); // Use location.key instead of pathname to detect actual navigation
 
   const loadData = async () => {
+    if (loadingRef.current) {
+      console.log('Already loading, skipping...');
+      return;
+    }
+    
     try {
+      loadingRef.current = true;
       setLoading(true);
+      console.log('Loading data...');
       const [playersRes, gamesRes] = await Promise.all([
         playersApi.getAll(),
         gamesApi.getAll(true)
       ]);
       
+      console.log('Active games response:', gamesRes.data);
       setPlayers(playersRes.data);
       
       if (gamesRes.data.length > 0) {
         const game = gamesRes.data[0];
+        console.log('Found active game:', game);
         setActiveGame(game);
         await loadGameData(game.id);
+      } else {
+        console.log('No active games found');
+        setActiveGame(null);
       }
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
   };
 
@@ -129,10 +148,19 @@ function GamePlay() {
     
     if (window.confirm('Finish this game? This will mark it as complete and count toward statistics.')) {
       try {
-        await gamesApi.finish(activeGame.id);
+        console.log('Finishing game:', activeGame.id);
+        const response = await gamesApi.finish(activeGame.id);
+        console.log('Finish game response:', response);
+        
+        // Clear active game
         setActiveGame(null);
         setRounds([]);
         setGameStats([]);
+        
+        // Small delay to ensure DB commits, then navigate to stats
+        setTimeout(() => {
+          navigate('/stats');
+        }, 300);
       } catch (error) {
         console.error('Error finishing game:', error);
         alert('Error finishing game');

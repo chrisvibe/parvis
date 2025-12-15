@@ -2,10 +2,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend } from 'recharts';
 import { playersApi, gamesApi } from '../api';
 import { getSetting } from '../utils/settings';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 function Stats() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [players, setPlayers] = useState([]);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState([]); // Changed to array for multi-select
   const [playerStats, setPlayerStats] = useState(null);
@@ -30,6 +31,15 @@ function Stats() {
     loadAllGames();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Reload games when navigating back to Stats (e.g., after finishing a game)
+  useEffect(() => {
+    if (location.pathname === '/stats') {
+      console.log('Navigated to Stats, reloading games...');
+      loadAllGames();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.key]);
 
   // Debounce search term
   useEffect(() => {
@@ -69,9 +79,26 @@ function Stats() {
     try {
       const res = await playersApi.getAll();
       setPlayers(res.data);
+      
       if (res.data.length > 0) {
-        setSelectedPlayerIds([res.data[0].id]); // Start with first player selected
-        await loadPlayerStats([res.data[0].id]);
+        // Fetch stats for all players to find highest win rate
+        const statsPromises = res.data.map(p => playersApi.getStats(p.id));
+        const statsResults = await Promise.all(statsPromises);
+        
+        // Find player with highest win rate
+        let highestWinRatePlayer = res.data[0];
+        let highestWinRate = -1;
+        
+        statsResults.forEach((result, idx) => {
+          if (result.data.win_rate > highestWinRate) {
+            highestWinRate = result.data.win_rate;
+            highestWinRatePlayer = res.data[idx];
+          }
+        });
+        
+        console.log(`Selected player with highest win rate: ${highestWinRatePlayer.alias} (${highestWinRate.toFixed(1)}%)`);
+        setSelectedPlayerIds([highestWinRatePlayer.id]);
+        await loadPlayerStats([highestWinRatePlayer.id]);
       }
     } catch (error) {
       console.error('Error loading players:', error);
@@ -189,8 +216,8 @@ function Stats() {
       // Reactivate the game
       await gamesApi.reactivate(gameId);
       
-      // Navigate to Play Game page
-      navigate('/play');
+      // Navigate to Play Game page (root path)
+      navigate('/');
     } catch (error) {
       console.error('Error reactivating game:', error);
       alert('Error reactivating game. Please try again.');
