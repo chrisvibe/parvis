@@ -1,6 +1,9 @@
 make sure statistics make sense, do we need rounds in final standings?
+add historical pics to immich
 add link in about to historical scores immich albums
 need protection with user login somehow
 need a way to backup and restore database
+add historical scores to database
+
 
 
