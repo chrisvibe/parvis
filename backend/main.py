@@ -1,11 +1,25 @@
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, Integer
 from typing import List
+from datetime import datetime
+import os
+
+# Local imports
 import models as schemas
 from database import get_db, init_db, Player, Game, GamePlayer, Round
-import os
+from utils import (
+    calculate_score,
+    validate_bet,
+    validate_positive_int,
+    get_game_or_404,
+    get_player_or_404,
+    get_round_or_404,
+    get_player_by_alias,
+    player_to_dict_with_relations
+)
+from constants import DEFAULT_GAME_TYPE
 
 app = FastAPI(title="Parvis API")
 
@@ -27,39 +41,23 @@ def startup():
 # PLAYERS
 # ============================================================================
 
-@app.get("/players", response_model=List[schemas.Player])
+@app.get("/players", response_model=List[schemas.PlayerWithRelations])
 def get_players(db: Session = Depends(get_db)):
+    """Get all players with their parent relationships."""
     players = db.query(Player).all()
-    # Add parent_ids and last_game_date to response
-    result = []
-    for player in players:
-        player_dict = {
-            "id": player.id,
-            "alias": player.alias,
-            "first_name": player.first_name,
-            "middle_name": player.middle_name,
-            "last_name": player.last_name,
-            "birthdate": player.birthdate,
-            "registration_date": player.registration_date,
-            "last_game_date": player.last_game_date,
-            "parent_ids": [p.id for p in player.parents]
-        }
-        result.append(player_dict)
-    return result
+    return [player_to_dict_with_relations(p) for p in players]
+
 
 @app.get("/players/{player_id}", response_model=schemas.Player)
 def get_player(player_id: int, db: Session = Depends(get_db)):
-    player = db.query(Player).filter(Player.id == player_id).first()
-    if not player:
-        raise HTTPException(status_code=404, detail="Player not found")
-    return player
+    """Get a specific player by ID."""
+    return get_player_or_404(player_id, db)
+
 
 @app.get("/players/{player_id}/family")
 def get_player_family(player_id: int, db: Session = Depends(get_db)):
-    """Get player with parent and child relationships"""
-    player = db.query(Player).filter(Player.id == player_id).first()
-    if not player:
-        raise HTTPException(status_code=404, detail="Player not found")
+    """Get player with parent and child relationships."""
+    player = get_player_or_404(player_id, db)
     
     return {
         "id": player.id,
@@ -68,16 +66,15 @@ def get_player_family(player_id: int, db: Session = Depends(get_db)):
         "child_ids": [c.id for c in player.children]
     }
 
+
 @app.put("/players/{player_id}", response_model=schemas.Player)
 def update_player(player_id: int, player: schemas.PlayerCreate, db: Session = Depends(get_db)):
-    """Update existing player"""
-    db_player = db.query(Player).filter(Player.id == player_id).first()
-    if not db_player:
-        raise HTTPException(status_code=404, detail="Player not found")
+    """Update an existing player."""
+    db_player = get_player_or_404(player_id, db)
     
     # Check if new alias conflicts with another player
     if player.alias != db_player.alias:
-        existing = db.query(Player).filter(Player.alias == player.alias).first()
+        existing = get_player_by_alias(player.alias, db)
         if existing:
             raise HTTPException(status_code=400, detail="Alias already exists")
     
@@ -97,10 +94,12 @@ def update_player(player_id: int, player: schemas.PlayerCreate, db: Session = De
     db.refresh(db_player)
     return db_player
 
+
 @app.post("/players", response_model=schemas.Player)
 def create_player(player: schemas.PlayerCreate, db: Session = Depends(get_db)):
+    """Create a new player."""
     # Check if alias exists
-    existing = db.query(Player).filter(Player.alias == player.alias).first()
+    existing = get_player_by_alias(player.alias, db)
     if existing:
         raise HTTPException(status_code=400, detail="Alias already exists")
     
@@ -121,12 +120,11 @@ def create_player(player: schemas.PlayerCreate, db: Session = Depends(get_db)):
     db.refresh(db_player)
     return db_player
 
+
 @app.delete("/players/{player_id}")
 def delete_player(player_id: int, db: Session = Depends(get_db)):
-    player = db.query(Player).filter(Player.id == player_id).first()
-    if not player:
-        raise HTTPException(status_code=404, detail="Player not found")
-    
+    """Delete a player."""
+    player = get_player_or_404(player_id, db)
     db.delete(player)
     db.commit()
     return {"message": "Player deleted"}
@@ -137,26 +135,26 @@ def delete_player(player_id: int, db: Session = Depends(get_db)):
 
 @app.get("/games", response_model=List[schemas.Game])
 def get_games(active_only: bool = False, db: Session = Depends(get_db)):
+    """Get all games, optionally filtering to active games only."""
     query = db.query(Game)
     if active_only:
         query = query.filter(Game.is_active == True)
     return query.order_by(Game.date.desc()).all()
 
+
 @app.get("/games/{game_id}", response_model=schemas.Game)
 def get_game(game_id: int, db: Session = Depends(get_db)):
-    game = db.query(Game).filter(Game.id == game_id).first()
-    if not game:
-        raise HTTPException(status_code=404, detail="Game not found")
-    return game
+    """Get a specific game by ID."""
+    return get_game_or_404(game_id, db)
+
 
 @app.post("/games", response_model=schemas.Game)
 def create_game(game_data: schemas.GameCreate, db: Session = Depends(get_db)):
-    from datetime import datetime
-    
+    """Create a new game with specified players."""
     # Create game
     game = Game(
         total_rounds=game_data.total_rounds,
-        game_type=game_data.game_type,
+        game_type=game_data.game_type or DEFAULT_GAME_TYPE,
         notes=game_data.notes,
         location=game_data.location,
         date=datetime.utcnow()
@@ -179,34 +177,31 @@ def create_game(game_data: schemas.GameCreate, db: Session = Depends(get_db)):
     db.refresh(game)
     return game
 
+
 @app.post("/games/{game_id}/finish")
 def finish_game(game_id: int, db: Session = Depends(get_db)):
-    game = db.query(Game).filter(Game.id == game_id).first()
-    if not game:
-        raise HTTPException(status_code=404, detail="Game not found")
-    
+    """Mark a game as finished."""
+    game = get_game_or_404(game_id, db)
     game.is_active = False
     game.is_valid = True  # Mark as valid/completed
     db.commit()
     return {"message": "Game finished successfully"}
 
+
 @app.post("/games/{game_id}/cancel")
 def cancel_game(game_id: int, db: Session = Depends(get_db)):
-    game = db.query(Game).filter(Game.id == game_id).first()
-    if not game:
-        raise HTTPException(status_code=404, detail="Game not found")
-    
+    """Cancel a game (marks as invalid)."""
+    game = get_game_or_404(game_id, db)
     game.is_active = False
     game.is_valid = False  # Mark as cancelled/invalid
     db.commit()
     return {"message": "Game cancelled"}
 
+
 @app.post("/games/{game_id}/reactivate")
 def reactivate_game(game_id: int, db: Session = Depends(get_db)):
-    """Reactivate a finished/cancelled game for editing"""
-    game = db.query(Game).filter(Game.id == game_id).first()
-    if not game:
-        raise HTTPException(status_code=404, detail="Game not found")
+    """Reactivate a finished/cancelled game for editing."""
+    game = get_game_or_404(game_id, db)
     
     # Set game as active again
     game.is_active = True
@@ -215,6 +210,7 @@ def reactivate_game(game_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Game reactivated for editing", "game_id": game_id}
 
+
 @app.put("/games/{game_id}/metadata")
 def update_game_metadata(
     game_id: int, 
@@ -222,10 +218,8 @@ def update_game_metadata(
     location: str = Query(None),
     db: Session = Depends(get_db)
 ):
-    """Update game notes and location"""
-    game = db.query(Game).filter(Game.id == game_id).first()
-    if not game:
-        raise HTTPException(status_code=404, detail="Game not found")
+    """Update game notes and location."""
+    game = get_game_or_404(game_id, db)
     
     if notes is not None:
         game.notes = notes if notes else None
@@ -236,25 +230,15 @@ def update_game_metadata(
     db.refresh(game)
     return {"message": "Game metadata updated", "game": game}
 
-@app.post("/games/{game_id}/adjust-rounds")
-def adjust_rounds(game_id: int, new_total: int = Query(...), db: Session = Depends(get_db)):
-    game = db.query(Game).filter(Game.id == game_id).first()
-    if not game:
-        raise HTTPException(status_code=404, detail="Game not found")
+
+def _find_highest_complete_round(game_id: int, player_count: int, db: Session) -> int:
+    """
+    Find the highest round number where all players have entries.
     
-    if new_total < 1:
-        raise HTTPException(status_code=400, detail="Total rounds must be at least 1")
-    
-    game.total_rounds = new_total
-    
-    # Get number of players in game
-    player_count = db.query(GamePlayer).filter(GamePlayer.game_id == game_id).count()
-    
-    # FIXED: Find the highest round number that exists in the database
-    # Check ALL rounds, not just up to new_total
-    highest_round_in_db = db.query(func.max(Round.round_number)).filter(
-        Round.game_id == game_id
-    ).scalar() or 0
+    Helper function for adjust_rounds to keep logic cleaner.
+    """
+    highest_round_in_db = db.query(func.max(Round.round_number))\
+        .filter(Round.game_id == game_id).scalar() or 0
     
     highest_complete_round = 0
     # Check all rounds that exist, up to the max in database
@@ -269,13 +253,36 @@ def adjust_rounds(game_id: int, new_total: int = Query(...), db: Session = Depen
         else:
             break  # Stop at first incomplete round
     
-    # Set current_round appropriately:
-    # - If we have complete rounds up to or beyond new_total, cap at new_total
-    # - Otherwise, set to the next round after the highest complete round
-    if highest_complete_round >= new_total:
-        game.current_round = new_total
-    else:
-        game.current_round = highest_complete_round + 1
+    return highest_complete_round
+
+
+def _calculate_new_current_round(highest_complete: int, new_total: int) -> int:
+    """
+    Determine appropriate current_round after adjusting total_rounds.
+    
+    Helper function for adjust_rounds to separate business logic.
+    """
+    if highest_complete >= new_total:
+        return new_total
+    return highest_complete + 1
+
+
+@app.post("/games/{game_id}/adjust-rounds")
+def adjust_rounds(game_id: int, new_total: int = Query(...), db: Session = Depends(get_db)):
+    """Adjust the total number of rounds in a game."""
+    game = get_game_or_404(game_id, db)
+    
+    validate_positive_int(new_total, "Total rounds")
+    
+    # Get number of players in game
+    player_count = db.query(GamePlayer).filter(GamePlayer.game_id == game_id).count()
+    
+    # Find highest complete round
+    highest_complete = _find_highest_complete_round(game_id, player_count, db)
+    
+    # Update game
+    game.total_rounds = new_total
+    game.current_round = _calculate_new_current_round(highest_complete, new_total)
     
     db.commit()
     return {
@@ -290,9 +297,8 @@ def adjust_rounds(game_id: int, new_total: int = Query(...), db: Session = Depen
 
 @app.post("/games/{game_id}/rounds", response_model=List[schemas.Round])
 def add_round(game_id: int, round_data: schemas.RoundCreate, db: Session = Depends(get_db)):
-    game = db.query(Game).filter(Game.id == game_id).first()
-    if not game:
-        raise HTTPException(status_code=404, detail="Game not found")
+    """Add a new round with bets for all players."""
+    game = get_game_or_404(game_id, db)
     
     if not game.is_active:
         raise HTTPException(status_code=400, detail="Game is not active")
@@ -304,7 +310,7 @@ def add_round(game_id: int, round_data: schemas.RoundCreate, db: Session = Depen
     # Create rounds for each player
     created_rounds = []
     for bet_data in round_data.bets:
-        score = (10 + bet_data["bet"]) if bet_data["success"] else 0
+        score = calculate_score(bet_data["bet"], bet_data["success"])
         
         round_entry = Round(
             game_id=game_id,
@@ -325,20 +331,20 @@ def add_round(game_id: int, round_data: schemas.RoundCreate, db: Session = Depen
     
     return created_rounds
 
+
 @app.put("/games/{game_id}/rounds/{round_id}", response_model=schemas.Round)
 def update_round(game_id: int, round_id: int, bet: int, success: bool, db: Session = Depends(get_db)):
-    """Update an existing round"""
-    round_entry = db.query(Round).filter(Round.id == round_id, Round.game_id == game_id).first()
-    if not round_entry:
-        raise HTTPException(status_code=404, detail="Round not found")
+    """Update an existing round."""
+    round_entry = get_round_or_404(round_id, game_id, db)
     
     round_entry.bet = bet
     round_entry.success = success
-    round_entry.score = (10 + bet) if success else 0
+    round_entry.score = calculate_score(bet, success)
     
     db.commit()
     db.refresh(round_entry)
     return round_entry
+
 
 @app.post("/games/{game_id}/rounds/upsert")
 def upsert_round(
@@ -349,14 +355,11 @@ def upsert_round(
     success: bool = Query(...),
     db: Session = Depends(get_db)
 ):
-    """Create or update a single round entry"""
-    game = db.query(Game).filter(Game.id == game_id).first()
-    if not game:
-        raise HTTPException(status_code=404, detail="Game not found")
+    """Create or update a single round entry."""
+    game = get_game_or_404(game_id, db)
     
-    # Validate bet range: 0 to current_round
-    if bet < 0 or bet > round_number:
-        raise HTTPException(status_code=400, detail=f"Bet must be between 0 and {round_number}")
+    # Validate bet range
+    validate_bet(bet, round_number)
     
     # Find existing round
     round_entry = db.query(Round).filter(
@@ -365,7 +368,7 @@ def upsert_round(
         Round.player_id == player_id
     ).first()
     
-    score = (10 + bet) if success else 0
+    score = calculate_score(bet, success)
     
     if round_entry:
         # Update existing
@@ -401,9 +404,12 @@ def upsert_round(
         "score": round_entry.score
     }
 
+
 @app.get("/games/{game_id}/rounds", response_model=List[schemas.Round])
 def get_game_rounds(game_id: int, db: Session = Depends(get_db)):
-    return db.query(Round).filter(Round.game_id == game_id).order_by(Round.round_number, Round.player_id).all()
+    """Get all rounds for a game."""
+    return db.query(Round).filter(Round.game_id == game_id)\
+        .order_by(Round.round_number, Round.player_id).all()
 
 # ============================================================================
 # STATS
@@ -411,10 +417,8 @@ def get_game_rounds(game_id: int, db: Session = Depends(get_db)):
 
 @app.get("/games/{game_id}/stats", response_model=List[schemas.GameStats])
 def get_game_stats(game_id: int, db: Session = Depends(get_db)):
-    # Get game to check total_rounds
-    game = db.query(Game).filter(Game.id == game_id).first()
-    if not game:
-        raise HTTPException(status_code=404, detail="Game not found")
+    """Get statistics for all players in a game."""
+    game = get_game_or_404(game_id, db)
     
     # Get all players in the game
     game_players = db.query(GamePlayer).filter(GamePlayer.game_id == game_id).all()
@@ -452,11 +456,11 @@ def get_game_stats(game_id: int, db: Session = Depends(get_db)):
     
     return result
 
+
 @app.get("/players/{player_id}/stats", response_model=schemas.PlayerStats)
 def get_player_stats(player_id: int, db: Session = Depends(get_db)):
-    player = db.query(Player).filter(Player.id == player_id).first()
-    if not player:
-        raise HTTPException(status_code=404, detail="Player not found")
+    """Get comprehensive statistics for a player across all games."""
+    player = get_player_or_404(player_id, db)
     
     stats = db.query(
         func.count(func.distinct(Round.game_id)).label('games_played'),
@@ -483,19 +487,21 @@ def get_player_stats(player_id: int, db: Session = Depends(get_db)):
         win_rate=win_rate
     )
 
+
 @app.get("/players/{player_id}/bet-distribution")
 def get_player_bet_distribution(player_id: int, db: Session = Depends(get_db)):
-    """Get histogram data of player's bets"""
+    """Get histogram data of player's bets."""
     bets = db.query(
         Round.bet,
         func.count(Round.id).label('count')
-    ).filter(Round.player_id == player_id).group_by(Round.bet).order_by(Round.bet).all()
+    ).filter(Round.player_id == player_id)\
+     .group_by(Round.bet)\
+     .order_by(Round.bet).all()
     
     return [{"bet": b.bet, "count": b.count} for b in bets]
 
+
 @app.get("/health")
 def health():
+    """Health check endpoint."""
     return {"status": "healthy"}
-
-# Add this import at the top
-from sqlalchemy import Integer

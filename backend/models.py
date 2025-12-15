@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
 from datetime import date, datetime
 
@@ -17,8 +17,21 @@ class Player(PlayerBase):
     id: int
     registration_date: date
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+class PlayerWithRelations(BaseModel):
+    """Player model with parent relationships included."""
+    id: int
+    alias: str
+    first_name: Optional[str] = None
+    middle_name: Optional[str] = None
+    last_name: Optional[str] = None
+    birthdate: Optional[date] = None
+    registration_date: date
+    last_game_date: Optional[datetime] = None
+    parent_ids: List[int] = []
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class GameCreate(BaseModel):
     player_ids: List[int]
@@ -38,8 +51,7 @@ class Game(BaseModel):
     is_active: bool
     is_valid: bool
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class RoundCreate(BaseModel):
     bets: List[dict]  # [{"player_id": 1, "bet": 5, "success": true}, ...]
@@ -53,8 +65,7 @@ class Round(BaseModel):
     success: bool
     score: int
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class GameStats(BaseModel):
     game_id: int
