@@ -201,6 +201,41 @@ def cancel_game(game_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Game cancelled"}
 
+@app.post("/games/{game_id}/reactivate")
+def reactivate_game(game_id: int, db: Session = Depends(get_db)):
+    """Reactivate a finished/cancelled game for editing"""
+    game = db.query(Game).filter(Game.id == game_id).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    # Set game as active again
+    game.is_active = True
+    game.is_valid = False  # Mark as invalid since we're editing
+    
+    db.commit()
+    return {"message": "Game reactivated for editing", "game_id": game_id}
+
+@app.put("/games/{game_id}/metadata")
+def update_game_metadata(
+    game_id: int, 
+    notes: str = Query(None),
+    location: str = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Update game notes and location"""
+    game = db.query(Game).filter(Game.id == game_id).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    if notes is not None:
+        game.notes = notes if notes else None
+    if location is not None:
+        game.location = location if location else None
+    
+    db.commit()
+    db.refresh(game)
+    return {"message": "Game metadata updated", "game": game}
+
 @app.post("/games/{game_id}/adjust-rounds")
 def adjust_rounds(game_id: int, new_total: int = Query(...), db: Session = Depends(get_db)):
     game = db.query(Game).filter(Game.id == game_id).first()
@@ -215,9 +250,15 @@ def adjust_rounds(game_id: int, new_total: int = Query(...), db: Session = Depen
     # Get number of players in game
     player_count = db.query(GamePlayer).filter(GamePlayer.game_id == game_id).count()
     
-    # Find the highest round that has complete data (all players have entries)
+    # FIXED: Find the highest round number that exists in the database
+    # Check ALL rounds, not just up to new_total
+    highest_round_in_db = db.query(func.max(Round.round_number)).filter(
+        Round.game_id == game_id
+    ).scalar() or 0
+    
     highest_complete_round = 0
-    for round_num in range(1, new_total + 1):
+    # Check all rounds that exist, up to the max in database
+    for round_num in range(1, highest_round_in_db + 1):
         rounds_count = db.query(Round).filter(
             Round.game_id == game_id,
             Round.round_number == round_num
@@ -228,12 +269,20 @@ def adjust_rounds(game_id: int, new_total: int = Query(...), db: Session = Depen
         else:
             break  # Stop at first incomplete round
     
-    # Set current_round to the next round after the highest complete round
-    # But cap at new_total
-    game.current_round = min(highest_complete_round + 1, new_total)
+    # Set current_round appropriately:
+    # - If we have complete rounds up to or beyond new_total, cap at new_total
+    # - Otherwise, set to the next round after the highest complete round
+    if highest_complete_round >= new_total:
+        game.current_round = new_total
+    else:
+        game.current_round = highest_complete_round + 1
     
     db.commit()
-    return {"message": f"Total rounds adjusted to {new_total}", "new_total": new_total}
+    return {
+        "message": f"Total rounds adjusted to {new_total}", 
+        "new_total": new_total, 
+        "current_round": game.current_round
+    }
 
 # ============================================================================
 # ROUNDS

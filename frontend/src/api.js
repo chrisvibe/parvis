@@ -34,6 +34,13 @@ export const gamesApi = {
     api.post(`/games/${gameId}/rounds/upsert`, null, {
       params: { round_number: roundNumber, player_id: playerId, bet, success }
     }),
+  reactivate: (gameId) => api.post(`/games/${gameId}/reactivate`),
+  updateMetadata: (gameId, data) => api.put(`/games/${gameId}/metadata`, null, {
+    params: {
+      notes: data.notes,
+      location: data.location
+    }
+  }),
 };
 
 export default api;

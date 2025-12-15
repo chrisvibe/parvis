@@ -6,6 +6,7 @@ display:
   date_format: "dd/MM/yyyy"  # European format
   header_left_card: "/cards/Queen_of_hearts_en.svg"
   header_right_card: "/cards/King_of_spades_en.svg"
+  default_recent_games: 5  # Number of recent games to show by default in historical viewer
   
 tree:
   node_radius: 20

@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { gamesApi, playersApi } from '../api';
+import { useLocation } from 'react-router-dom';
 import FamilyTreeSelector from '../components/FamilyTreeSelector';
 import GameMatrix from '../components/GameMatrix';
 import { getSetting } from '../utils/settings';
 
 function GamePlay() {
+  const location = useLocation();
   const [players, setPlayers] = useState([]);
   const [activeGame, setActiveGame] = useState(null);
   const [rounds, setRounds] = useState([]);
@@ -16,11 +18,18 @@ function GamePlay() {
   const [selectedPlayers, setSelectedPlayers] = useState([]);
   const [totalRounds, setTotalRounds] = useState(getSetting('game.default_rounds', 10));
   const [gameNotes, setGameNotes] = useState('');
+  const [gameLocation, setGameLocation] = useState('');
 
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Reload when navigating to this route (e.g., from Stats after editing)
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
 
   const loadData = async () => {
     try {
@@ -69,7 +78,8 @@ function GamePlay() {
       const gameData = {
         player_ids: selectedPlayers,
         total_rounds: parseInt(totalRounds),
-        notes: gameNotes || null
+        notes: gameNotes || null,
+        location: gameLocation || null
       };
       const res = await gamesApi.create(gameData);
       setActiveGame(res.data);
@@ -84,6 +94,7 @@ function GamePlay() {
       
       setSelectedPlayers([]);
       setGameNotes('');
+      setGameLocation('');
       
       // Load game data ONCE after all initializations
       await loadGameData(res.data.id);
@@ -166,6 +177,26 @@ function GamePlay() {
     }
   };
 
+  const editMetadata = async () => {
+    if (!activeGame) return;
+    
+    const newNotes = prompt('Game Notes:', activeGame.notes || '');
+    const newLocation = prompt('Game Location:', activeGame.location || '');
+    
+    if (newNotes === null && newLocation === null) return; // User cancelled
+    
+    try {
+      await gamesApi.updateMetadata(activeGame.id, {
+        notes: newNotes === null ? activeGame.notes : newNotes,
+        location: newLocation === null ? activeGame.location : newLocation
+      });
+      await loadGameData(activeGame.id);
+    } catch (error) {
+      console.error('Error updating metadata:', error);
+      alert('Error updating game metadata');
+    }
+  };
+
   // Chart data
   const chartData = React.useMemo(() => {
     if (!gameStats.length || !rounds.length || !activeGame) return [];
@@ -222,6 +253,16 @@ function GamePlay() {
             />
           </div>
 
+          <div className="form-group">
+            <label>Game Location (optional):</label>
+            <input
+              type="text"
+              placeholder="e.g., Home, Office, Online"
+              value={gameLocation}
+              onChange={(e) => setGameLocation(e.target.value)}
+            />
+          </div>
+
           <FamilyTreeSelector
             players={players}
             selectedPlayerIds={selectedPlayers}
@@ -241,6 +282,9 @@ function GamePlay() {
             <div className="game-controls">
               <button onClick={adjustRounds} className="button">
                 ⚙️ Adjust Rounds
+              </button>
+              <button onClick={editMetadata} className="button">
+                📝 Edit Metadata
               </button>
               <button onClick={cancelGame} className="button danger">
                 ❌ Cancel Game

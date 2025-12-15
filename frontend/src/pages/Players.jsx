@@ -19,6 +19,7 @@ function Players() {
     birthdate: null,
     parent_ids: []
   });
+  const [parentSearchTerm, setParentSearchTerm] = useState('');
 
   useEffect(() => {
     loadPlayers();
@@ -49,21 +50,6 @@ function Players() {
       ...formData,
       birthdate: date
     });
-  };
-
-  const handleParentToggle = (parentId) => {
-    const currentParents = formData.parent_ids || [];
-    if (currentParents.includes(parentId)) {
-      setFormData({
-        ...formData,
-        parent_ids: currentParents.filter(id => id !== parentId)
-      });
-    } else {
-      setFormData({
-        ...formData,
-        parent_ids: [...currentParents, parentId]
-      });
-    }
   };
 
   const handleSubmit = async (e) => {
@@ -131,6 +117,7 @@ function Players() {
       birthdate: null,
       parent_ids: []
     });
+    setParentSearchTerm('');
     setEditingPlayer(null);
     setShowForm(false);
   };
@@ -222,39 +209,113 @@ function Players() {
                 className="date-picker-input"
               />
 
-              <label>PARENTS (select multiple)</label>
+              <label>PARENTS</label>
+              {/* Search input for filtering */}
+              <div style={{ marginBottom: '10px' }}>
+                <input
+                  type="text"
+                  placeholder="Filter dropdown by name... (then select below)"
+                  value={parentSearchTerm}
+                  onChange={(e) => setParentSearchTerm(e.target.value)}
+                  style={{ marginBottom: '10px' }}
+                />
+              </div>
+
+              {/* Dropdown to select parents */}
+              <select
+                value=""
+                onChange={(e) => {
+                  const selectedId = parseInt(e.target.value);
+                  if (selectedId && !formData.parent_ids.includes(selectedId)) {
+                    setFormData({
+                      ...formData,
+                      parent_ids: [...formData.parent_ids, selectedId]
+                    });
+                    setParentSearchTerm(''); // Clear search after selection
+                  }
+                }}
+                style={{ width: '100%', marginBottom: '10px' }}
+              >
+                <option value="">
+                  {parentSearchTerm ? '-- Click to see filtered results --' : '-- Select a parent --'}
+                </option>
+                {availableParents
+                  .filter(p => 
+                    !formData.parent_ids.includes(p.id) &&
+                    (parentSearchTerm === '' ||
+                     p.alias.toLowerCase().includes(parentSearchTerm.toLowerCase()) ||
+                     (p.first_name && p.first_name.toLowerCase().includes(parentSearchTerm.toLowerCase())) ||
+                     (p.last_name && p.last_name.toLowerCase().includes(parentSearchTerm.toLowerCase())))
+                  )
+                  .map(player => (
+                    <option key={player.id} value={player.id}>
+                      {player.alias}
+                      {player.birthdate && ` (${new Date(player.birthdate).toLocaleDateString('en-GB')})`}
+                    </option>
+                  ))
+                }
+              </select>
+
+              {/* Selected parents list */}
               <div style={{ 
-                maxHeight: '200px', 
-                overflow: 'auto', 
                 border: '2px solid #00ff00', 
                 padding: '10px', 
                 margin: '10px 0',
-                background: '#16213e'
+                background: '#16213e',
+                minHeight: '60px'
               }}>
-                {availableParents.length === 0 ? (
+                <div style={{ color: '#00ff00', marginBottom: '10px', fontSize: '0.9rem', opacity: 0.7 }}>
+                  Selected Parents:
+                </div>
+                {formData.parent_ids.length === 0 ? (
                   <div style={{ color: '#00ff00', opacity: 0.5, textAlign: 'center', padding: '10px' }}>
-                    No other players available
+                    No parents selected
                   </div>
                 ) : (
-                  availableParents.map(player => (
-                    <label 
-                      key={player.id} 
-                      style={{ 
-                        display: 'block', 
-                        cursor: 'pointer', 
-                        padding: '5px',
-                        background: formData.parent_ids.includes(player.id) ? 'rgba(0, 255, 0, 0.1)' : 'transparent'
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={formData.parent_ids.includes(player.id)}
-                        onChange={() => handleParentToggle(player.id)}
-                      />
-                      {' '}{player.alias}
-                      {player.birthdate && ` (${new Date(player.birthdate).toLocaleDateString('en-GB')})`}
-                    </label>
-                  ))
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                    {formData.parent_ids.map(parentId => {
+                      const parent = players.find(p => p.id === parentId);
+                      if (!parent) return null;
+                      return (
+                        <div 
+                          key={parentId}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '5px 10px',
+                            background: '#0a0e27',
+                            border: '1px solid #00ff00',
+                            borderRadius: '4px'
+                          }}
+                        >
+                          <span style={{ color: '#00ff00' }}>
+                            {parent.alias}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFormData({
+                                ...formData,
+                                parent_ids: formData.parent_ids.filter(id => id !== parentId)
+                              });
+                            }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: '#ff0000',
+                              cursor: 'pointer',
+                              padding: '0 5px',
+                              fontSize: '1.2rem',
+                              lineHeight: '1'
+                            }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
 
