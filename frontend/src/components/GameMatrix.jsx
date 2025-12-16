@@ -1,300 +1,224 @@
 import React, { useState } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { useLocation, useNavigate } from 'react-router-dom';
+import FamilyTreeSelector from '../components/FamilyTreeSelector';
+import GameMatrix from '../components/GameMatrix';
+import { useGameState, useGameActions, useChartData } from '../hooks';
 import { getSetting } from '../utils/settings';
-import { gamesApi } from '../api';
-import '../styles/GameMatrix.css';
 
-function GameMatrix({ 
-  game, 
-  players, 
-  rounds, 
-  onRoundsUpdate,
-  onReload
-}) {
-  const [mode, setMode] = useState('bets');
-  const [editingCell, setEditingCell] = useState(null);
-  const [editValue, setEditValue] = useState('');
+function GamePlay() {
+  const location = useLocation();
+  const navigate = useNavigate();
   
-  // Build matrix from rounds data
-  const matrix = React.useMemo(() => {
-    if (!players || players.length === 0) {
-      return [];
+  // Custom hooks for game state and actions
+  const {
+    players,
+    activeGame,
+    rounds,
+    gameStats,
+    loading,
+    loadGameData,
+    clearGame,
+  } = useGameState(location);
+
+  const {
+    createGame: createGameAction,
+    updateRound,
+    finishGame,
+    cancelGame,
+    adjustRounds,
+    editMetadata,
+  } = useGameActions(activeGame, loadGameData, clearGame, navigate);
+
+  // Chart data
+  const chartData = useChartData(gameStats, rounds, activeGame);
+  
+  // New game form state
+  const [selectedPlayers, setSelectedPlayers] = useState([]);
+  const [totalRounds, setTotalRounds] = useState(getSetting('game.default_rounds', 10));
+  const [gameNotes, setGameNotes] = useState('');
+  const [gameLocation, setGameLocation] = useState('');
+
+  // Create game handler
+  const handleCreateGame = async () => {
+    if (selectedPlayers.length < 2) {
+      alert('Select at least 2 players');
+      return;
     }
-    
-    const m = [];
-    for (let r = 0; r < game.total_rounds; r++) {
-      const row = [];
-      for (let p = 0; p < players.length; p++) {
-        const round = rounds.find(
-          rd => rd.round_number === r + 1 && rd.player_id === players[p].player_id
-        );
-        row.push({
-          round: r + 1,
-          playerId: players[p].player_id,
-          bet: round?.bet ?? null,
-          success: round?.success ?? false,
-          score: round?.score ?? null
-        });
-      }
-      m.push(row);
-    }
-    return m;
-  }, [rounds, players, game.total_rounds]);
 
-  // Calculate totals
-  const totals = React.useMemo(() => {
-    return players.map(player => {
-      const playerRounds = rounds.filter(r => r.player_id === player.player_id);
-      return playerRounds.reduce((sum, r) => sum + (r.score || 0), 0);
-    });
-  }, [rounds, players]);
-
-  const handleNextRound = async () => {
-    if (!game || game.current_round >= game.total_rounds) return;
-    
-    // Step 1: Increment the counter first
-    await gamesApi.incrementRound(game.id);
-    
-    // Step 2: Initialize the NEW current_round with zeroes
-    const newRound = game.current_round + 1; // This will match what backend just incremented to
-    await Promise.all(
-      players.map(player => 
-        gamesApi.upsertRound(game.id, newRound, player.player_id, 0, false)
-      )
-    );
-    
-    // Step 3: Reload data
-    if (onReload) {
-      await onReload();
-    }
-    
-    // Switch back to edit bets mode
-    setMode('bets');
-  };
-
-  const handleCellClick = (roundIdx, playerIdx) => {
-    if (mode === 'bets') {
-      const cell = matrix[roundIdx][playerIdx];
-      setEditingCell({ round: roundIdx, player: playerIdx });
-      setEditValue(cell.bet !== null ? String(cell.bet) : '');
-    }
-  };
-
-  const handleCellDoubleClick = (roundIdx, playerIdx) => {
-    if (mode === 'results') {
-      const cell = matrix[roundIdx][playerIdx];
-      if (cell.bet !== null) {
-        updateCell(roundIdx, playerIdx, cell.bet, !cell.success);
-      }
-    }
-  };
-
-  const updateCell = async (roundIdx, playerIdx, bet, success) => {
-    const roundNumber = roundIdx + 1;
-    const playerId = players[playerIdx].player_id;
-    
-    const roundData = {
-      round: roundNumber,
-      playerId: playerId,
-      bet: parseInt(bet),
-      success: success
-    };
-
-    await onRoundsUpdate(roundData);
-  };
-
-  const handleInputChange = (e) => {
-    const value = e.target.value;
-    if (value === '' || /^\d+$/.test(value)) {
-      const numValue = parseInt(value);
-      const roundNumber = editingCell.round + 1;
+    try {
+      await createGameAction({
+        player_ids: selectedPlayers,
+        total_rounds: parseInt(totalRounds),
+        notes: gameNotes || null,
+        location: gameLocation || null,
+      });
       
-      if (value === '' || (numValue >= 0 && numValue <= roundNumber)) {
-        setEditValue(value);
-      }
+      // Reset form
+      setSelectedPlayers([]);
+      setGameNotes('');
+      setGameLocation('');
+    } catch (error) {
+      alert('Error creating game');
     }
   };
 
-  const handleInputBlur = async () => {
-    if (editingCell) {
-      const { round, player } = editingCell;
-      const bet = editValue === '' ? 0 : parseInt(editValue);
-      const cell = matrix[round][player];
-      await updateCell(round, player, bet, cell.success);
-      setEditingCell(null);
-    }
-  };
+  // Chart colors
+  const colors = ['#00ff00', '#ffff00', '#00ffff', '#ff00ff', '#ff8800'];
 
-  const handleInputKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      handleInputBlur();
-    } else if (e.key === 'Escape') {
-      setEditingCell(null);
-    }
-  };
-
-  const getCellStyle = (roundIdx, playerIdx, cell) => {
-    const matrixColors = getSetting('matrix', {});
-    const isPriority = (roundIdx % players.length) === playerIdx;
-    const isFutureRound = (roundIdx + 1) > game.current_round;
-    
-    let backgroundColor = matrixColors.cell_empty;
-    let color = '#00ff00';
-    let borderWidth = matrixColors.cell_border || '1px';
-    let borderColor = '#00ff00';
-    
-    if (isPriority) {
-      borderWidth = matrixColors.cell_priority_border || '3px';
-      borderColor = matrixColors.cell_priority || '#00ffff';
-    }
-    
-    if (isFutureRound) {
-      backgroundColor = '#0a0a0a';
-      color = '#333';
-    } else if (cell.bet !== null) {
-      if (cell.success) {
-        backgroundColor = matrixColors.cell_success;
-        color = '#0a0e27';
-      } else if (cell.score !== null) {
-        backgroundColor = matrixColors.cell_failed;
-        color = '#fff';
-      } else {
-        backgroundColor = matrixColors.cell_bet_pending;
-        color = '#0a0e27';
-      }
-    }
-    
-    return {
-      backgroundColor,
-      color,
-      borderWidth,
-      borderColor,
-      borderStyle: 'solid',
-      pointerEvents: isFutureRound ? 'none' : 'auto',
-      opacity: isFutureRound ? 0.3 : 1
-    };
-  };
-
-  const getCellDisplay = (cell) => {
-    if (cell.bet === null) return '-';
-    
-    if (mode === 'bets') {
-      return cell.bet;
-    }
-    
-    if (cell.score !== null) {
-      return cell.success ? cell.score : '0';
-    }
-    
-    return cell.bet;
-  };
-
-  if (!players || players.length === 0) {
-    return (
-      <div className="game-matrix-container">
-        <div className="matrix-controls">
-          <p style={{color: '#ff0000'}}>Loading players...</p>
-        </div>
-      </div>
-    );
+  if (loading) {
+    return <div className="page"><h1>Loading...</h1></div>;
   }
 
   return (
-    <div className="game-matrix-container">
-      <div className="matrix-controls">
-        <button 
-          onClick={() => setMode('bets')}
-          className={mode === 'bets' ? 'active' : ''}
-        >
-          📝 EDIT BETS
-        </button>
-        <button 
-          onClick={() => setMode('results')}
-          className={mode === 'results' ? 'active' : ''}
-        >
-          ✓ MARK RESULTS
-        </button>
-        {mode === 'results' && game.current_round < game.total_rounds && (
-          <button 
-            onClick={handleNextRound}
-            style={{ marginLeft: 'auto', background: '#00ff00', color: '#0a0e27' }}
-          >
-            ⏭️ NEXT ROUND
-          </button>
-        )}
-        <div className="mode-indicator">
-          Current Round: {game.current_round}/{game.total_rounds} | 
-          Mode: {mode === 'bets' ? 'Bet Entry' : 'Mark Success/Fail (double-click)'}
-        </div>
-      </div>
+    <div className="page">
+      {!activeGame ? (
+        <div className="game-setup">
+          <h2>New Game Setup</h2>
+          
+          <div className="form-group">
+            <label>Total Rounds:</label>
+            <input
+              type="number"
+              min="1"
+              max="50"
+              value={totalRounds}
+              onChange={(e) => setTotalRounds(parseInt(e.target.value))}
+            />
+          </div>
 
-      <div className="matrix-wrapper">
-        <table className="game-matrix">
-          <thead>
-            <tr>
-              <th>Round</th>
-              {players.map(player => (
-                <th key={player.player_id}>{player.player_alias}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {matrix.map((row, roundIdx) => (
-              <tr key={roundIdx}>
-                <td 
-                  className="round-label"
-                  style={{
-                    backgroundColor: (roundIdx + 1) === game.current_round ? '#ffff00' : undefined,
-                    color: (roundIdx + 1) === game.current_round ? '#0a0e27' : undefined,
-                    fontWeight: (roundIdx + 1) === game.current_round ? 'bold' : undefined
-                  }}
-                >
-                  {roundIdx + 1}
-                </td>
-                {row.map((cell, playerIdx) => {
-                  const isEditing = editingCell?.round === roundIdx && editingCell?.player === playerIdx;
-                  const isPriority = (roundIdx % players.length) === playerIdx;
-                  
-                  return (
-                    <td
-                      key={playerIdx}
-                      className={`matrix-cell ${isPriority ? 'priority' : ''}`}
-                      style={getCellStyle(roundIdx, playerIdx, cell)}
-                      onClick={() => handleCellClick(roundIdx, playerIdx)}
-                      onDoubleClick={() => handleCellDoubleClick(roundIdx, playerIdx)}
-                    >
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          value={editValue}
-                          onChange={handleInputChange}
-                          onBlur={handleInputBlur}
-                          onKeyDown={handleInputKeyDown}
-                          autoFocus
-                          className="cell-input"
-                        />
-                      ) : (
-                        getCellDisplay(cell)
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td className="total-label">TOTAL</td>
-              {totals.map((total, idx) => (
-                <td key={idx} className="total-cell">
-                  {total}
-                </td>
-              ))}
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+          <div className="form-group">
+            <label>Game Notes (optional):</label>
+            <input
+              type="text"
+              placeholder="e.g., Tournament 2025"
+              value={gameNotes}
+              onChange={(e) => setGameNotes(e.target.value)}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Game Location (optional):</label>
+            <input
+              type="text"
+              placeholder="e.g., Home, Office, Online"
+              value={gameLocation}
+              onChange={(e) => setGameLocation(e.target.value)}
+            />
+          </div>
+
+          <FamilyTreeSelector
+            players={players}
+            selectedPlayerIds={selectedPlayers}
+            onSelectionChange={setSelectedPlayers}
+          />
+
+          <button onClick={handleCreateGame} disabled={selectedPlayers.length < 2}>
+            Start Game ({selectedPlayers.length} players selected)
+          </button>
+        </div>
+      ) : (
+        <div className="active-game">
+          <div className="game-header">
+            <h2>
+              Game #{activeGame.id} - Round {activeGame.current_round}/{activeGame.total_rounds}
+            </h2>
+            <div className="game-controls">
+              <button onClick={adjustRounds} className="button">
+                ⚙️ Adjust Rounds
+              </button>
+              <button onClick={editMetadata} className="button">
+                📝 Edit Metadata
+              </button>
+              <button onClick={cancelGame} className="button danger">
+                ❌ Cancel Game
+              </button>
+              <button onClick={finishGame} className="button success">
+                🏁 Finish Game
+              </button>
+            </div>
+          </div>
+
+          <GameMatrix
+            game={activeGame}
+            players={gameStats}
+            rounds={rounds}
+            onRoundsUpdate={updateRound}
+            onReload={() => loadGameData(activeGame.id)}
+          />
+
+          {chartData.length > 0 && (
+            <div className="chart-container">
+              <h3>📊 Score Progress</h3>
+              <ResponsiveContainer width="100%" height={400}>
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#00ff00" opacity={0.2} />
+                  <XAxis 
+                    dataKey="round" 
+                    stroke="#00ff00"
+                    label={{ value: 'Round', position: 'insideBottom', offset: -5, fill: '#00ff00' }}
+                  />
+                  <YAxis 
+                    stroke="#00ff00"
+                    label={{ value: 'Score', angle: -90, position: 'insideLeft', fill: '#00ff00' }}
+                  />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: '#0a0e27', 
+                      border: '2px solid #00ff00',
+                      color: '#00ff00'
+                    }}
+                  />
+                  {gameStats.map((stat, idx) => (
+                    <Line
+                      key={stat.player_id}
+                      type="monotone"
+                      dataKey={stat.player_alias}
+                      stroke={colors[idx % colors.length]}
+                      strokeWidth={2}
+                      dot={{ fill: colors[idx % colors.length], r: 4 }}
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          <div className="leaderboard">
+            <h3>🏆 Current Standings</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Player</th>
+                  <th>Total Score</th>
+                  <th>Rounds Played</th>
+                  <th>Success Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...gameStats]
+                  .sort((a, b) => b.total_score - a.total_score)
+                  .map((stat, idx) => (
+                    <tr key={stat.player_id}>
+                      <td>{idx + 1}</td>
+                      <td>{stat.player_alias}</td>
+                      <td>{stat.total_score}</td>
+                      <td>{stat.rounds_played}</td>
+                      <td>
+                        {stat.rounds_played > 0
+                          ? `${((stat.successful_bets / stat.rounds_played) * 100).toFixed(1)}%`
+                          : 'N/A'}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-export default GameMatrix;
+export default GamePlay;
