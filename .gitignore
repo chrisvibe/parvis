@@ -4,11 +4,14 @@
 # Docker override (symlink to infrastructure repo)
 docker-compose.override.yaml
 
-# python
-*/__pycache__/
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
 
 # Backend
-backend/*.pyc
 backend/.pytest_cache/
 
 # Frontend

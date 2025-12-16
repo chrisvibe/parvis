@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { getSetting } from '../utils/settings';
 import { gamesApi } from '../api';
 import '../styles/GameMatrix.css';
@@ -8,26 +8,15 @@ function GameMatrix({
   players, 
   rounds, 
   onRoundsUpdate,
-  onReload  // Add reload callback
+  onReload
 }) {
-  const [mode, setMode] = useState('bets'); // 'bets' or 'results'
+  const [mode, setMode] = useState('bets');
   const [editingCell, setEditingCell] = useState(null);
   const [editValue, setEditValue] = useState('');
-  
-  // Debug logging
-  React.useEffect(() => {
-    console.log('GameMatrix received:', { 
-      game, 
-      players, 
-      playersLength: players?.length,
-      rounds 
-    });
-  }, [game, players, rounds]);
   
   // Build matrix from rounds data
   const matrix = React.useMemo(() => {
     if (!players || players.length === 0) {
-      console.log('No players available for matrix');
       return [];
     }
     
@@ -48,7 +37,6 @@ function GameMatrix({
       }
       m.push(row);
     }
-    console.log('Built matrix:', m);
     return m;
   }, [rounds, players, game.total_rounds]);
 
@@ -59,6 +47,29 @@ function GameMatrix({
       return playerRounds.reduce((sum, r) => sum + (r.score || 0), 0);
     });
   }, [rounds, players]);
+
+  const handleNextRound = async () => {
+    if (!game || game.current_round >= game.total_rounds) return;
+    
+    // Step 1: Increment the counter first
+    await gamesApi.incrementRound(game.id);
+    
+    // Step 2: Initialize the NEW current_round with zeroes
+    const newRound = game.current_round + 1; // This will match what backend just incremented to
+    await Promise.all(
+      players.map(player => 
+        gamesApi.upsertRound(game.id, newRound, player.player_id, 0, false)
+      )
+    );
+    
+    // Step 3: Reload data
+    if (onReload) {
+      await onReload();
+    }
+    
+    // Switch back to edit bets mode
+    setMode('bets');
+  };
 
   const handleCellClick = (roundIdx, playerIdx) => {
     if (mode === 'bets') {
@@ -72,7 +83,6 @@ function GameMatrix({
     if (mode === 'results') {
       const cell = matrix[roundIdx][playerIdx];
       if (cell.bet !== null) {
-        // Toggle success
         updateCell(roundIdx, playerIdx, cell.bet, !cell.success);
       }
     }
@@ -83,8 +93,8 @@ function GameMatrix({
     const playerId = players[playerIdx].player_id;
     
     const roundData = {
-      round: roundNumber,      // ✅ Fixed key name
-      playerId: playerId,       // ✅ Fixed key name
+      round: roundNumber,
+      playerId: playerId,
       bet: parseInt(bet),
       success: success
     };
@@ -94,12 +104,10 @@ function GameMatrix({
 
   const handleInputChange = (e) => {
     const value = e.target.value;
-    // Only allow digits and empty
     if (value === '' || /^\d+$/.test(value)) {
       const numValue = parseInt(value);
       const roundNumber = editingCell.round + 1;
       
-      // Validate: bet must be 0 to current round number
       if (value === '' || (numValue >= 0 && numValue <= roundNumber)) {
         setEditValue(value);
       }
@@ -139,7 +147,6 @@ function GameMatrix({
       borderColor = matrixColors.cell_priority || '#00ffff';
     }
     
-    // Disable future rounds
     if (isFutureRound) {
       backgroundColor = '#0a0a0a';
       color = '#333';
@@ -167,41 +174,17 @@ function GameMatrix({
     };
   };
 
-  const handleNextRound = async () => {
-    if (!game || game.current_round >= game.total_rounds) return;
-    
-    const nextRound = game.current_round + 1;
-    
-    // Initialize all players with bet=0, success=false for next round
-    await Promise.all(
-      players.map(player => 
-        gamesApi.upsertRound(game.id, nextRound, player.player_id, 0, false)
-      )
-    );
-    
-    // Reload data ONCE after all updates
-    if (onReload) {
-      await onReload();
-    }
-    
-    // Switch back to edit bets mode for the new round
-    setMode('bets');
-  };
-
   const getCellDisplay = (cell) => {
     if (cell.bet === null) return '-';
     
-    // In edit bets mode, show the bet value
     if (mode === 'bets') {
       return cell.bet;
     }
     
-    // In results mode, show the score
     if (cell.score !== null) {
       return cell.success ? cell.score : '0';
     }
     
-    // Fallback
     return cell.bet;
   };
 
@@ -235,7 +218,7 @@ function GameMatrix({
             onClick={handleNextRound}
             style={{ marginLeft: 'auto', background: '#00ff00', color: '#0a0e27' }}
           >
-            ⏭️ NEXT ROUND ({game.current_round + 1}/{game.total_rounds})
+            ⏭️ NEXT ROUND
           </button>
         )}
         <div className="mode-indicator">
