@@ -100,6 +100,25 @@ class GameService:
         self.db.commit()
         return game
     
+    def delete_game(self, game_id: int) -> None:
+        """
+        Permanently delete a game and all its rounds.
+        
+        Args:
+            game_id: ID of the game to delete
+        """
+        game = get_game_or_404(game_id, self.db)
+        
+        # Delete all rounds first (due to foreign key)
+        self.db.query(Round).filter(Round.game_id == game_id).delete()
+        
+        # Delete game players
+        self.db.query(GamePlayer).filter(GamePlayer.game_id == game_id).delete()
+        
+        # Delete game
+        self.db.delete(game)
+        self.db.commit()
+    
     def reactivate_game(self, game_id: int) -> Game:
         """
         Reactivate a finished/cancelled game for editing.

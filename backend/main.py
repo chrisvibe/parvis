@@ -114,6 +114,14 @@ def cancel_game(game_id: int, db: Session = Depends(get_db)):
     return {"message": "Game cancelled"}
 
 
+@app.delete("/games/{game_id}")
+def delete_game(game_id: int, db: Session = Depends(get_db)):
+    """Permanently delete a game and all its data."""
+    service = GameService(db)
+    service.delete_game(game_id)
+    return {"message": "Game deleted permanently"}
+
+
 @app.post("/games/{game_id}/reactivate")
 def reactivate_game(game_id: int, db: Session = Depends(get_db)):
     """Reactivate a finished/cancelled game for editing."""

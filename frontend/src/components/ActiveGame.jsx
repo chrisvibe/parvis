@@ -17,7 +17,8 @@ import Leaderboard from './Leaderboard';
  * @param {Function} onReload - Handler to reload game data
  * @param {Function} onAdjustRounds - Handler for adjust rounds
  * @param {Function} onEditMetadata - Handler for edit metadata
- * @param {Function} onCancelGame - Handler for cancel game
+ * @param {Function} onMinimizeGame - Handler for minimize game
+ * @param {Function} onDeleteGame - Handler for delete game
  * @param {Function} onFinishGame - Handler for finish game
  */
 function ActiveGame({
@@ -29,7 +30,8 @@ function ActiveGame({
   onReload,
   onAdjustRounds,
   onEditMetadata,
-  onCancelGame,
+  onMinimizeGame,
+  onDeleteGame,
   onFinishGame,
 }) {
   return (
@@ -39,10 +41,11 @@ function ActiveGame({
           Game #{game.id} - Round {game.current_round}/{game.total_rounds}
         </h2>
         <GameControls
+          game={game}
           onAdjustRounds={onAdjustRounds}
           onEditMetadata={onEditMetadata}
-          onCancelGame={onCancelGame}
-          onFinishGame={onFinishGame}
+          onMinimizeGame={onMinimizeGame}
+          onDeleteGame={onDeleteGame}
         />
       </div>
 
@@ -52,6 +55,7 @@ function ActiveGame({
         rounds={rounds}
         onRoundsUpdate={onRoundUpdate}
         onReload={onReload}
+        onFinishGame={onFinishGame}
       />
 
       <ScoreChart

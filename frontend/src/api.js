@@ -26,6 +26,7 @@ export const gamesApi = {
   create: (data) => api.post('/games', data),
   finish: (id) => api.post(`/games/${id}/finish`),
   cancel: (id) => api.post(`/games/${id}/cancel`),
+  delete: (id) => api.delete(`/games/${id}`),
   adjustRounds: (id, newTotal) => api.post(`/games/${id}/adjust-rounds`, null, { params: { new_total: newTotal } }),
   incrementRound: (id) => api.post(`/games/${id}/increment-round`),
   getRounds: (id) => api.get(`/games/${id}/rounds`),

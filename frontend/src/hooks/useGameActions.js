@@ -65,6 +65,12 @@ export function useGameActions(activeGame, loadGameData, clearGame, navigate) {
   const finishGame = useCallback(async () => {
     if (!activeGame) return;
     
+    // Can only finish if on the last round
+    if (activeGame.current_round !== activeGame.total_rounds) {
+      alert(`You must complete all rounds before finishing. Currently on round ${activeGame.current_round} of ${activeGame.total_rounds}.`);
+      return;
+    }
+    
     if (!window.confirm('Finish this game? This will mark it as complete and count toward statistics.')) {
       return;
     }
@@ -84,12 +90,12 @@ export function useGameActions(activeGame, loadGameData, clearGame, navigate) {
   }, [activeGame, clearGame, navigate]);
 
   /**
-   * Cancel the current game.
+   * Minimize (cancel) the current game - exits but keeps in database.
    */
-  const cancelGame = useCallback(async () => {
+  const minimizeGame = useCallback(async () => {
     if (!activeGame) return;
     
-    if (!window.confirm('Cancel this game? It will not count toward statistics.')) {
+    if (!window.confirm('Minimize this game? It will remain in the database but won\'t be active.')) {
       return;
     }
 
@@ -97,7 +103,26 @@ export function useGameActions(activeGame, loadGameData, clearGame, navigate) {
       await gamesApi.cancel(activeGame.id);
       clearGame();
     } catch (error) {
-      console.error('Error cancelling game:', error);
+      console.error('Error minimizing game:', error);
+      throw error;
+    }
+  }, [activeGame, clearGame]);
+
+  /**
+   * Permanently delete the current game.
+   */
+  const deleteGame = useCallback(async () => {
+    if (!activeGame) return;
+    
+    if (!window.confirm('Permanently DELETE this game? This cannot be undone and will remove all data.')) {
+      return;
+    }
+
+    try {
+      await gamesApi.delete(activeGame.id);
+      clearGame();
+    } catch (error) {
+      console.error('Error deleting game:', error);
       throw error;
     }
   }, [activeGame, clearGame]);
@@ -157,7 +182,8 @@ export function useGameActions(activeGame, loadGameData, clearGame, navigate) {
     createGame,
     updateRound,
     finishGame,
-    cancelGame,
+    minimizeGame,
+    deleteGame,
     adjustRounds,
     editMetadata,
   };

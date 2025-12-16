@@ -4,18 +4,20 @@ import React from 'react';
  * GameControls - Action buttons for active game.
  * 
  * Provides buttons for adjusting rounds, editing metadata,
- * cancelling, and finishing the game.
+ * minimizing, and deleting the game.
  * 
+ * @param {Object} game - Current game object (needed to check if on last round)
  * @param {Function} onAdjustRounds - Handler for adjust rounds
  * @param {Function} onEditMetadata - Handler for edit metadata
- * @param {Function} onCancelGame - Handler for cancel game
- * @param {Function} onFinishGame - Handler for finish game
+ * @param {Function} onMinimizeGame - Handler for minimize game
+ * @param {Function} onDeleteGame - Handler for delete game
  */
 function GameControls({ 
+  game,
   onAdjustRounds, 
   onEditMetadata, 
-  onCancelGame, 
-  onFinishGame 
+  onMinimizeGame,
+  onDeleteGame
 }) {
   return (
     <div className="game-controls">
@@ -25,11 +27,11 @@ function GameControls({
       <button onClick={onEditMetadata} className="button">
         📝 Edit Metadata
       </button>
-      <button onClick={onCancelGame} className="button danger">
-        ❌ Cancel Game
+      <button onClick={onMinimizeGame} className="button">
+        ➖ Minimize
       </button>
-      <button onClick={onFinishGame} className="button success">
-        🏁 Finish Game
+      <button onClick={onDeleteGame} className="button danger">
+        🗑️ Delete
       </button>
     </div>
   );
