@@ -46,6 +46,46 @@ services:
       - ./frontend/public:/app/public
     command: npm start
 
+  # Automated backup service
+  #   0. docker compose exec backup /scripts/backup_db.sh
+  #      docker compose down && docker compose up -d backup
+  #   1. List available backups:
+  #      docker compose exec backup ls -lh /backups/
+  #   2. Restore specific backup:
+  #      docker compose exec backup /scripts/restore_db.sh /backups/parvis_backup_YYYY-MM-DD_HH-MM-SS.sql
+  #   3. Restart backend:
+  #      docker compose restart backend
+  backup:
+    image: postgres:18-alpine
+    container_name: parvis-backup
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - BACKUP_DIR=/backups
+      - BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-30}
+      - BACKUP_CRON_SCHEDULE=${BACKUP_CRON_SCHEDULE:-0 4 * * *}
+    volumes:
+      - ./backups:/backups
+      - ./scripts:/scripts:ro
+    command: >
+      sh -c "
+        echo 'Installing crond...';
+        apk add --no-cache dcron;
+        echo 'Setting up cron job...';
+        echo '$${BACKUP_CRON_SCHEDULE} /scripts/backup_db.sh >> /backups/backup.log 2>&1' > /etc/crontabs/root;
+        echo 'Cron schedule: $${BACKUP_CRON_SCHEDULE}';
+        echo 'Retention: $${BACKUP_RETENTION_DAYS} days';
+        echo 'Starting crond...';
+        crond -f -l 2
+      "
+
 volumes:
   db_data:
     name: parvis_db

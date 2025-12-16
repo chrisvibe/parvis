@@ -3,6 +3,16 @@ POSTGRES_DB=parvis
 POSTGRES_USER=parvis
 POSTGRES_PASSWORD=changeme_secure_password
 
+# Backup Configuration
+# Cron schedule format: minute hour day month weekday
+# Default: 0 4 * * * (daily at 4:00 AM)
+# Examples:
+#   0 4 * * *     = daily at 4:00 AM
+#   0 */6 * * *   = every 6 hours
+#   0 2 * * 0     = weekly on Sunday at 2:00 AM
+BACKUP_CRON_SCHEDULE=0 4 * * *
+BACKUP_RETENTION_DAYS=30
+
 # Backend Configuration
 CORS_ORIGINS=http://localhost:3000,https://parvis.yourdomain.com
 
