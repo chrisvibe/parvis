@@ -14,6 +14,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - default
 
   backend:
     build: ./backend
@@ -22,14 +24,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - CORS_ORIGINS=*
     volumes:
       - ./backend:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - default
 
   frontend:
     build: ./frontend
@@ -37,14 +39,26 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
-    ports:
-      - "3000:3000"
     environment:
-      - REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost:8000}
+      - REACT_APP_API_URL=/api
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
     command: npm start
+    networks:
+      - default
+
+  nginx:
+    image: nginx:alpine
+    container_name: parvis-nginx
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - default
 
   # Automated backup service
   #   0. docker compose exec backup /scripts/backup_db.sh
@@ -74,6 +88,8 @@ services:
     volumes:
       - ./backups:/backups
       - ./scripts:/scripts:ro
+    networks:
+      - default
     command: >
       sh -c "
         echo 'Installing crond...';
@@ -89,3 +105,8 @@ services:
 volumes:
   db_data:
     name: parvis_db
+
+networks:
+  default:
+    name: parvis_internal
+
