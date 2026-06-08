@@ -4,7 +4,13 @@ POSTGRES_USER=parvis
 POSTGRES_PASSWORD=changeme_secure_password
 
 # Backup Configuration
-# Cron schedule: minute hour day month weekday (default: daily at 4 AM)
-BACKUP_CRON_SCHEDULE=0 4 * * *
+# Cron schedule: minute hour day month weekday (default: daily at 3 AM)
+BACKUP_CRON_SCHEDULE=0 3 * * *
 BACKUP_RETENTION_DAYS=30
 
+# NAS-backed backups (applied by the infra override).
+# NAS_IP must be defined BEFORE NFS_OPTIONS (which references it). Use the same
+# NAS_IP / NFS_OPTIONS values as the other services on this host.
+NAS_IP=192.168.1.43
+NFS_OPTIONS=addr=${NAS_IP},nolock,soft,rw
+NAS_PARVIS_BACKUP_PATH=:/mnt/elephant/self-hosting/backups/parvis

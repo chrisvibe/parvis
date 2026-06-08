@@ -1,76 +1,61 @@
-#!/bin/bash
-# Database restore script for Parvis
-# Usage: ./restore_db.sh <backup_file.sql>
-# Example: ./restore_db.sh /backups/parvis_backup_2025-01-15_04-00-00.sql
+#!/bin/sh
+# Restore a custom-format (.dump) backup produced by backup_db.sh.
+# Strategy: validate the dump, kill connections, drop+recreate an empty DB, pg_restore into it.
+# A fresh DB avoids leftover objects that an in-place --clean restore can miss.
+#
+# Usage: restore_db.sh <backup_file.dump>
+#   Set FORCE=1 (or pass --force) to skip the interactive confirmation (for automated tests).
+set -eu
 
-set -e
+BACKUP_FILE="${1:-}"
+FORCE="${FORCE:-0}"
+[ "${2:-}" = "--force" ] && FORCE=1
 
-# Check if backup file is provided
-if [ -z "$1" ]; then
-    echo "Usage: $0 <backup_file.sql>"
-    echo ""
+PGHOST="${POSTGRES_HOST:-db}"
+PGPORT="${POSTGRES_PORT:-5432}"
+PGDATABASE="${POSTGRES_DB:-parvis}"
+PGUSER="${POSTGRES_USER:-parvis}"
+export PGPASSWORD="${POSTGRES_PASSWORD:-}"
+
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
+psql_postgres() { psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres -v ON_ERROR_STOP=1 "$@"; }
+
+if [ -z "$BACKUP_FILE" ]; then
+    echo "Usage: $0 <backup_file.dump>"
     echo "Available backups:"
-    ls -lh /backups/parvis_backup_*.sql 2>/dev/null || echo "  No backups found in /backups/"
+    ls -lh "${BACKUP_DIR:-/backups}/${SERVICE_NAME:-parvis}_db_"*.dump 2>/dev/null || echo "  (none found)"
+    exit 1
+fi
+[ -f "$BACKUP_FILE" ] || { echo "ERROR: not found: $BACKUP_FILE"; exit 1; }
+
+# Fail fast if the dump is corrupt/truncated BEFORE we drop anything.
+if ! pg_restore --list "$BACKUP_FILE" >/dev/null 2>&1; then
+    echo "ERROR: '$BACKUP_FILE' is not a valid custom-format dump (corrupt or truncated)."
     exit 1
 fi
 
-BACKUP_FILE="$1"
-
-# Check if backup file exists
-if [ ! -f "${BACKUP_FILE}" ]; then
-    echo "ERROR: Backup file not found: ${BACKUP_FILE}"
-    exit 1
+echo "=========================================="
+echo " RESTORE  ${PGDATABASE} @ ${PGHOST}:${PGPORT}"
+echo " from     ${BACKUP_FILE}"
+echo "=========================================="
+if [ "$FORCE" != "1" ]; then
+    echo "WARNING: this COMPLETELY REPLACES database '${PGDATABASE}'."
+    printf "Type 'yes' to proceed: "
+    read -r CONFIRM
+    [ "$CONFIRM" = "yes" ] || { echo "Cancelled."; exit 0; }
 fi
 
-# Load configuration from environment variables
-POSTGRES_DB="${POSTGRES_DB:-parvis}"
-POSTGRES_USER="${POSTGRES_USER:-parvis}"
-POSTGRES_PASSWORD="${POSTGRES_PASSWORD}"
-POSTGRES_HOST="${POSTGRES_HOST:-db}"
-POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+log "Terminating active connections to '${PGDATABASE}'..."
+psql_postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${PGDATABASE}' AND pid <> pg_backend_pid();" >/dev/null
 
-echo "============================================"
-echo "DATABASE RESTORE"
-echo "============================================"
-echo "Backup file: ${BACKUP_FILE}"
-echo "Database:    ${POSTGRES_DB}"
-echo "Host:        ${POSTGRES_HOST}"
-echo "User:        ${POSTGRES_USER}"
-echo "============================================"
-echo ""
-echo "⚠️  WARNING: This will COMPLETELY REPLACE the current database!"
-echo ""
-read -p "Are you sure you want to continue? (type 'yes' to proceed): " CONFIRM
+log "Dropping and recreating '${PGDATABASE}'..."
+psql_postgres -c "DROP DATABASE IF EXISTS \"${PGDATABASE}\";"
+psql_postgres -c "CREATE DATABASE \"${PGDATABASE}\" OWNER \"${PGUSER}\";"
 
-if [ "$CONFIRM" != "yes" ]; then
-    echo "Restore cancelled."
-    exit 0
-fi
+log "Restoring..."
+# --no-owner/--no-privileges: roles may differ between environments (e.g. the test copy);
+# objects are recreated owned by the connecting user instead of failing on missing roles.
+pg_restore -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" \
+           --no-owner --no-privileges "$BACKUP_FILE"
 
-echo ""
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting database restore..."
-
-# Export password for psql
-export PGPASSWORD="${POSTGRES_PASSWORD}"
-
-# Drop existing database and recreate (clean slate)
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Dropping existing database..."
-psql -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT}" -U "${POSTGRES_USER}" -d postgres -c "DROP DATABASE IF EXISTS ${POSTGRES_DB};"
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Creating fresh database..."
-psql -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT}" -U "${POSTGRES_USER}" -d postgres -c "CREATE DATABASE ${POSTGRES_DB};"
-
-# Restore from backup
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Restoring from backup..."
-psql -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT}" -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" < "${BACKUP_FILE}"
-
-if [ $? -eq 0 ]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ Restore successful!"
-else
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ ERROR: Restore failed!"
-    exit 1
-fi
-
-echo ""
-echo "Database has been restored from: ${BACKUP_FILE}"
-echo "Please restart the backend service to ensure clean connections."
+log "Restore complete. Restart the backend to refresh connections."
