@@ -1,6 +1,8 @@
+x-postgres-image: &pg-image postgres:${POSTGRES_VERSION:-18-alpine}
+
 services:
   db:
-    image: postgres:18-alpine
+    image: *pg-image
     container_name: parvis-db
     restart: unless-stopped
     volumes:
@@ -70,7 +72,7 @@ services:
   #   docker compose exec backup /scripts/restore_db.sh /backups/parvis_db_YYYY-MM-DD_HH-MM-SS.dump
   #   docker compose restart backend                                # after a restore
   backup:
-    image: postgres:18-alpine
+    image: *pg-image
     container_name: parvis-backup
     restart: unless-stopped
     depends_on:

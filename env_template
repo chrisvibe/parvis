@@ -3,6 +3,9 @@ POSTGRES_DB=parvis
 POSTGRES_USER=parvis
 POSTGRES_PASSWORD=changeme_secure_password
 
+# Postgres image tag - bumps the db service AND its backup sidecar together (kept identical via a YAML anchor).
+POSTGRES_VERSION=18-alpine
+
 # Backup Configuration
 # Cron schedule: minute hour day month weekday (default: daily at 3 AM)
 BACKUP_CRON_SCHEDULE=0 3 * * *
