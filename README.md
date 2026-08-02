@@ -56,6 +56,29 @@ docker compose logs -f
 **External (with Cloudflare):**
 - https://parvis.yourdomain.com
 
+## Access control
+
+Two optional passwords, both set in the environment file:
+
+| Variable | Guards | Prompted |
+|---|---|---|
+| `PARVIS_PASSWORD` | every API request | once per browser, stored locally |
+| `PARVIS_ADMIN_PASSWORD` | deleting players and games | each deletion, never stored |
+
+Leave both blank and the site is open and never prompts, exactly as it behaved
+before passwords existed — which is also how you retire this in favour of
+Cloudflare Access.
+
+Setting only `PARVIS_ADMIN_PASSWORD` is a useful middle ground: the site stays
+open, but nothing can be deleted without the second password. The admin
+password is accepted anywhere the site password is.
+
+Enforcement is in the API (`backend/auth.py`), not the UI, because anything on
+the LAN can reach the API directly. `/health` stays open so the container
+healthcheck keeps working. Passwords are compared in constant time, but they
+travel as plain headers — fine behind HTTPS, so don't expose the API over plain
+HTTP.
+
 ## Architecture
 
 ```

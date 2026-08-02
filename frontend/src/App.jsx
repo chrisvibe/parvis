@@ -4,7 +4,9 @@ import GamePlay from './pages/GamePlay';
 import Stats from './pages/Stats';
 import Players from './pages/Players';
 import About from './pages/About';
+import LoginGate from './components/LoginGate';
 import { getSetting } from './utils/settings';
+import { setUnauthorizedHandler } from './api';
 
 function Navigation() {
   const location = useLocation();
@@ -42,6 +44,19 @@ function Navigation() {
 }
 
 function App() {
+  // Raised only when the API rejects a password; stays false when the server
+  // has no password configured.
+  const [locked, setLocked] = useState(false);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => setLocked(true));
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  if (locked) {
+    return <LoginGate />;
+  }
+
   return (
     <Router>
       <div className="app">

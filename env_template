@@ -6,6 +6,22 @@ POSTGRES_PASSWORD=changeme_secure_password
 # Postgres image tag - bumps the db service AND its backup sidecar together (kept identical via a YAML anchor).
 POSTGRES_VERSION=18-alpine
 
+# Access control (both optional)
+#
+# PARVIS_PASSWORD        asked for once per browser, then required on every
+#                        API request
+# PARVIS_ADMIN_PASSWORD  asked for at the moment of deletion, and required
+#                        only for deleting players and games
+#
+# Leave either blank to disable it. With both blank the site is unprotected and
+# never prompts, which is the original behaviour — that is also how you hand
+# access control over to Cloudflare Access later.
+#
+# The admin password is accepted anywhere the site password is, so whoever
+# holds it only needs the one.
+PARVIS_PASSWORD=
+PARVIS_ADMIN_PASSWORD=
+
 # Backup Configuration
 # Cron schedule: minute hour day month weekday (default: daily at 3 AM)
 BACKUP_CRON_SCHEDULE=0 3 * * *

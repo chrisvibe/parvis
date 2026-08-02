@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { gamesApi } from '../api';
+import { gamesApi, runDestructive } from '../api';
 
 /**
  * Custom hook for game actions (create, finish, cancel, adjust, etc.).
@@ -119,10 +119,14 @@ export function useGameActions(activeGame, loadGameData, clearGame, navigate) {
     }
 
     try {
-      await gamesApi.delete(activeGame.id);
+      await runDestructive(adminPassword => gamesApi.delete(activeGame.id, adminPassword));
       clearGame();
     } catch (error) {
       console.error('Error deleting game:', error);
+      if (error.response?.status === 403) {
+        alert('Wrong admin password. Game not deleted.');
+        return;
+      }
       throw error;
     }
   }, [activeGame, clearGame]);

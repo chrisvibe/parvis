@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
-import { playersApi } from '../api';
+import { playersApi, runDestructive } from '../api';
 import { getSetting } from '../utils/settings';
 
 function Players() {
@@ -152,11 +152,15 @@ function Players() {
     }
 
     try {
-      await playersApi.delete(playerId);
+      await runDestructive(adminPassword => playersApi.delete(playerId, adminPassword));
       loadPlayers();
     } catch (error) {
       console.error('Error deleting player:', error);
-      alert('Error deleting player. They may have game history.');
+      if (error.response?.status === 403) {
+        alert('Wrong admin password. Player not deleted.');
+      } else {
+        alert('Error deleting player. They may have game history.');
+      }
     }
   };
 

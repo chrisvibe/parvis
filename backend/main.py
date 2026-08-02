@@ -1,5 +1,6 @@
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from typing import List
 import os
@@ -8,6 +9,11 @@ import os
 import models as schemas
 from database import get_db, init_db, Game
 from services import GameService, PlayerService, RoundService
+from auth import (
+    ADMIN_PASSWORD_HEADER,
+    PASSWORD_HEADER,
+    check_request,
+)
 
 app = FastAPI(title="Parvis API")
 
@@ -24,6 +30,39 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     init_db()
+
+
+@app.middleware("http")
+async def password_gate(request: Request, call_next):
+    """
+    Enforce the optional site and admin passwords.
+
+    A middleware rather than per-route dependencies so that everything is
+    covered by default — including /docs and /openapi.json — and so that
+    forgetting to decorate a new endpoint cannot silently open a hole.
+    """
+    rejection = check_request(
+        request.method,
+        request.url.path,
+        request.headers.get(PASSWORD_HEADER),
+        request.headers.get(ADMIN_PASSWORD_HEADER),
+    )
+    if rejection:
+        status_code, detail = rejection
+        return JSONResponse(status_code=status_code, content={"detail": detail})
+    return await call_next(request)
+
+# ============================================================================
+# AUTH
+# ============================================================================
+
+@app.get("/auth/check")
+def auth_check():
+    """
+    Validate a password. Reaching this handler at all means the gate accepted
+    the request, so the login form only has to look at the status code.
+    """
+    return {"status": "ok"}
 
 # ============================================================================
 # PLAYERS
