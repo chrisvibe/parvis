@@ -13,6 +13,7 @@ function Players() {
   // Form state
   const [formData, setFormData] = useState({
     alias: '',
+    email: '',
     first_name: '',
     middle_name: '',
     last_name: '',
@@ -20,6 +21,9 @@ function Players() {
     parent_ids: []
   });
   const [parentSearchTerm, setParentSearchTerm] = useState('');
+
+  // Mirrors EMAIL_PATTERN in backend/models.py
+  const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
   useEffect(() => {
     loadPlayers();
@@ -60,6 +64,16 @@ function Players() {
       return;
     }
 
+    if (!formData.email.trim()) {
+      alert('Email is required');
+      return;
+    }
+
+    if (!EMAIL_PATTERN.test(formData.email.trim())) {
+      alert('Email must look like name@example.com');
+      return;
+    }
+
     // Check for circular parent relationships
     if (editingPlayer && formData.parent_ids.includes(editingPlayer.id)) {
       alert('A player cannot be their own parent!');
@@ -69,6 +83,7 @@ function Players() {
     try {
       const submitData = {
         alias: formData.alias.trim(),
+        email: formData.email.trim(),
         first_name: formData.first_name.trim() || null,
         middle_name: formData.middle_name.trim() || null,
         last_name: formData.last_name.trim() || null,
@@ -89,6 +104,13 @@ function Players() {
       console.error('Error saving player:', error);
       if (error.response?.status === 400) {
         alert(error.response.data.detail || 'Alias already exists or invalid data');
+      } else if (error.response?.status === 422) {
+        // FastAPI validation error: detail is a list of {loc, msg, ...}
+        const detail = error.response.data?.detail;
+        const message = Array.isArray(detail)
+          ? detail.map(d => `${d.loc?.slice(-1)[0] ?? 'field'}: ${d.msg}`).join('\n')
+          : detail;
+        alert(message || 'Invalid data');
       } else {
         alert('Error saving player');
       }
@@ -99,6 +121,7 @@ function Players() {
     setEditingPlayer(player);
     setFormData({
       alias: player.alias,
+      email: player.email || '',
       first_name: player.first_name || '',
       middle_name: player.middle_name || '',
       last_name: player.last_name || '',
@@ -111,6 +134,7 @@ function Players() {
   const resetForm = () => {
     setFormData({
       alias: '',
+      email: '',
       first_name: '',
       middle_name: '',
       last_name: '',
@@ -169,7 +193,17 @@ function Players() {
                 required
               />
 
-              <label>FIRST NAME</label>
+              <label>EMAIL (REQUIRED) *</label>
+              <input
+                type="email"
+                name="email"
+                value={formData.email}
+                onChange={handleInputChange}
+                placeholder="name@example.com"
+                required
+              />
+
+              <label>FIRST NAME (OPTIONAL)</label>
               <input
                 type="text"
                 name="first_name"
@@ -178,7 +212,7 @@ function Players() {
                 placeholder="Optional..."
               />
 
-              <label>MIDDLE NAME</label>
+              <label>MIDDLE NAME (OPTIONAL)</label>
               <input
                 type="text"
                 name="middle_name"
@@ -187,7 +221,7 @@ function Players() {
                 placeholder="Optional..."
               />
 
-              <label>LAST NAME</label>
+              <label>LAST NAME (OPTIONAL)</label>
               <input
                 type="text"
                 name="last_name"
@@ -196,7 +230,7 @@ function Players() {
                 placeholder="Optional..."
               />
 
-              <label>BIRTHDATE (DD/MM/YYYY)</label>
+              <label>BIRTHDATE (OPTIONAL, DD/MM/YYYY)</label>
               <DatePicker
                 selected={formData.birthdate}
                 onChange={handleDateChange}
@@ -209,7 +243,11 @@ function Players() {
                 className="date-picker-input"
               />
 
-              <label>PARENTS</label>
+              <label>PARENTS (OPTIONAL)</label>
+              <div style={{ color: '#00ff00', opacity: 0.7, fontSize: '0.9rem', marginBottom: '10px' }}>
+                Not required — leave empty and create the player. Parents only
+                link a player into the family tree, and can be added later with EDIT.
+              </div>
               {/* Search input for filtering */}
               <div style={{ marginBottom: '10px' }}>
                 <input
@@ -265,11 +303,11 @@ function Players() {
                 minHeight: '60px'
               }}>
                 <div style={{ color: '#00ff00', marginBottom: '10px', fontSize: '0.9rem', opacity: 0.7 }}>
-                  Selected Parents:
+                  Selected Parents (optional):
                 </div>
                 {formData.parent_ids.length === 0 ? (
                   <div style={{ color: '#00ff00', opacity: 0.5, textAlign: 'center', padding: '10px' }}>
-                    No parents selected
+                    No parents selected — that's fine, this field is optional
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
@@ -340,6 +378,7 @@ function Players() {
             <thead>
               <tr>
                 <th>ALIAS</th>
+                <th>EMAIL</th>
                 <th>NAME</th>
                 <th>BIRTHDATE</th>
                 <th>PARENTS</th>
@@ -364,6 +403,13 @@ function Players() {
                   <tr key={player.id}>
                     <td style={{ color: '#00ff00', fontWeight: 'bold' }}>
                       {player.alias}
+                    </td>
+                    <td style={{ fontSize: '0.9em' }}>
+                      {player.email || (
+                        <span style={{ color: '#ff0000' }} title="Registered before email was required — add one with EDIT">
+                          MISSING
+                        </span>
+                      )}
                     </td>
                     <td>{fullName}</td>
                     <td>

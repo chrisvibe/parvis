@@ -6,8 +6,10 @@ scoring consistency and data integrity.
 """
 
 import pytest
+from pydantic import ValidationError
 from utils.scoring import calculate_score
 from utils.validators import validate_bet, validate_positive_int
+from models import PlayerCreate
 from fastapi import HTTPException
 
 
@@ -69,6 +71,39 @@ class TestValidation:
         with pytest.raises(HTTPException) as exc_info:
             validate_positive_int(-5, "test_field")
         assert exc_info.value.status_code == 400
+
+
+class TestPlayerCreate:
+    """Tests for player input validation."""
+
+    def test_email_required(self):
+        """Creating a player without an email is rejected."""
+        with pytest.raises(ValidationError):
+            PlayerCreate(alias="tester")
+
+    def test_email_must_be_well_formed(self):
+        """Obvious non-emails are rejected."""
+        for bad in ["not-an-email", "no@domain", "two@@at.com", "spaces in@mail.com", "  "]:
+            with pytest.raises(ValidationError):
+                PlayerCreate(alias="tester", email=bad)
+
+    def test_valid_email_accepted_and_trimmed(self):
+        """A well-formed email is accepted, with surrounding whitespace removed."""
+        player = PlayerCreate(alias="tester", email="  player@example.com  ")
+        assert player.email == "player@example.com"
+
+    def test_parents_remain_optional(self):
+        """Parents are not required — a player can be created without them."""
+        player = PlayerCreate(alias="tester", email="player@example.com")
+        assert player.parent_ids == []
+
+    def test_other_fields_remain_optional(self):
+        """Names and birthdate stay optional."""
+        player = PlayerCreate(alias="tester", email="player@example.com")
+        assert player.first_name is None
+        assert player.middle_name is None
+        assert player.last_name is None
+        assert player.birthdate is None
 
 
 # Run with: pytest test_utils.py -v

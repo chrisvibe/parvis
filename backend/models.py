@@ -1,9 +1,18 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from typing import Optional, List
 from datetime import date, datetime
+import re
+
+# Deliberately permissive: one @, no spaces, a dot in the domain. Enough to catch
+# typos without pulling in the email-validator dependency that pydantic's
+# EmailStr needs.
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 class PlayerBase(BaseModel):
     alias: str
+    # Optional here so responses can still serialize players registered before
+    # email became mandatory. PlayerCreate makes it required on the way IN.
+    email: Optional[str] = None
     first_name: Optional[str] = None
     middle_name: Optional[str] = None
     last_name: Optional[str] = None
@@ -11,18 +20,30 @@ class PlayerBase(BaseModel):
     parent_ids: Optional[List[int]] = []
 
 class PlayerCreate(PlayerBase):
-    pass
+    """Write model for create/update — email is required."""
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        email = (value or "").strip()
+        if not email:
+            raise ValueError("Email is required")
+        if not EMAIL_PATTERN.match(email):
+            raise ValueError("Email must look like name@example.com")
+        return email
 
 class Player(PlayerBase):
     id: int
     registration_date: date
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 class PlayerWithRelations(BaseModel):
     """Player model with parent relationships included."""
     id: int
     alias: str
+    email: Optional[str] = None
     first_name: Optional[str] = None
     middle_name: Optional[str] = None
     last_name: Optional[str] = None

@@ -22,6 +22,7 @@ def player_to_dict_with_relations(player: DBPlayer) -> dict:
     return {
         "id": player.id,
         "alias": player.alias,
+        "email": player.email,
         "first_name": player.first_name,
         "middle_name": player.middle_name,
         "last_name": player.last_name,

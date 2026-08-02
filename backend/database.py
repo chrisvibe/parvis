@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, Date, ForeignKey, DateTime, Table
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, Date, ForeignKey, DateTime, Table, text
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime
 import os
@@ -22,6 +22,9 @@ class Player(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     alias = Column(String, unique=True, index=True, nullable=False)
+    # Required for new players (enforced by PlayerCreate), but nullable in the
+    # database so players registered before this field existed still load.
+    email = Column(String)
     first_name = Column(String)
     middle_name = Column(String)
     last_name = Column(String)
@@ -90,3 +93,17 @@ def get_db():
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    _add_missing_columns()
+
+
+def _add_missing_columns():
+    """
+    Add columns that were introduced after a database was first created.
+
+    create_all() only creates missing tables, never missing columns, so a
+    database that predates a new field needs the ALTER. Statements here must be
+    idempotent and non-destructive — they run on every startup, including after
+    a restore from an older backup.
+    """
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE players ADD COLUMN IF NOT EXISTS email VARCHAR"))
