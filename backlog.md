@@ -7,16 +7,30 @@ so it can be picked up cold.
 
 ## Bugs
 
-- [ ] **Statistics disagree with themselves.** `player_service.get_player_stats`
-      aggregates in SQL over *every* round a player ever played;
-      `game_service.get_game_stats` aggregates in a Python loop capped at
-      `round_number <= game.total_rounds`. So the same numbers are computed two
-      different ways, and per-game and lifetime figures diverge. Lifetime stats
-      also count rounds from **cancelled and unfinished games**, because nothing
-      joins to `Game.is_valid`. This is almost certainly the cause of the old
-      todo item "make sure statistics make sense". Decide the rule first (do
-      abandoned games count?), then implement it once and have both endpoints
-      call it.
+- [x] **Statistics disagree with themselves.** *(fixed 2026-08-02)* The two
+      endpoints computed the same figures two different ways — SQL aggregation
+      over every round ever played vs. a Python loop capped at
+      `round_number <= game.total_rounds` — so lifetime and per-game numbers
+      diverged, and lifetime totals counted cancelled and in-progress games.
+      Both now go through `utils/stats.py`, which holds the rules in one place:
+
+      1. A round counts only within its game's `total_rounds` (rounds orphaned
+         by shrinking a game score nothing).
+      2. Lifetime figures count **finished games only** (`is_valid`) — a record
+         moves when a game completes, not while it is being played, and never
+         for a cancelled one.
+      3. Per-game figures count that game whatever its state, so the live
+         scoreboard still works.
+      4. Invariant: lifetime totals equal the sum of that player's per-game
+         totals over finished games.
+
+      `games_played` now counts game *membership* in finished games, so joining
+      a game and never betting still counts as having played it, and the count
+      matches the number of per-game rows that sum into the totals.
+      `bet-distribution` uses the same rounds, so the histogram adds up to
+      `total_rounds`. `GameStats` gained `win_rate`, defined identically to the
+      lifetime one. Covered by 12 new tests (33 total) built on a synthetic
+      season, since there is no real game data yet.
 
 - [ ] **`parent_ids` is always `[]` in three endpoints.** `POST /players`,
       `PUT /players/{id}` and `GET /players/{id}` all report no parents even

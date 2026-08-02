@@ -5,16 +5,19 @@ Handles player creation, updates, and statistics.
 """
 
 from sqlalchemy.orm import Session
-from sqlalchemy import func, Integer
 from typing import List, Dict
 from fastapi import HTTPException
 
-from database import Player, Round
+from database import Player
 from models import PlayerCreate, PlayerStats
 from utils import (
     get_player_or_404,
     get_player_by_alias,
-    player_to_dict_with_relations
+    player_to_dict_with_relations,
+    aggregate_rounds,
+    bet_histogram,
+    games_finished,
+    lifetime_rounds
 )
 
 
@@ -153,56 +156,45 @@ class PlayerService:
     
     def get_player_stats(self, player_id: int) -> PlayerStats:
         """
-        Get comprehensive statistics for a player across all games.
-        
+        Get lifetime statistics for a player across their finished games.
+
+        Counts finished games only, and only rounds within each game's declared
+        length — see utils/stats.py for the rules. These totals are the sum of
+        the player's per-game figures, so the two pages agree.
+
         Args:
             player_id: ID of the player
-            
+
         Returns:
             PlayerStats with aggregated statistics
         """
         player = get_player_or_404(player_id, self.db)
-        
-        stats = self.db.query(
-            func.count(func.distinct(Round.game_id)).label('games_played'),
-            func.count(Round.id).label('total_rounds'),
-            func.sum(Round.score).label('total_score'),
-            func.sum(func.cast(Round.success, Integer)).label('successful_bets'),
-            func.avg(Round.bet).label('average_bet')
-        ).filter(Round.player_id == player_id).first()
-        
-        total_rounds = stats.total_rounds or 0
-        successful_bets = stats.successful_bets or 0
-        failed_bets = total_rounds - successful_bets
-        win_rate = (successful_bets / total_rounds * 100) if total_rounds > 0 else 0.0
-        
+
+        totals = aggregate_rounds(lifetime_rounds(self.db, player_id).all())
+
         return PlayerStats(
             player_id=player_id,
             player_alias=player.alias,
-            games_played=stats.games_played or 0,
-            total_rounds=total_rounds,
-            total_score=stats.total_score or 0,
-            successful_bets=successful_bets,
-            failed_bets=failed_bets,
-            average_bet=float(stats.average_bet) if stats.average_bet else 0.0,
-            win_rate=win_rate
+            games_played=games_finished(self.db, player_id),
+            total_rounds=totals.rounds_played,
+            total_score=totals.total_score,
+            successful_bets=totals.successful_bets,
+            failed_bets=totals.failed_bets,
+            average_bet=totals.average_bet,
+            win_rate=totals.win_rate
         )
-    
+
     def get_bet_distribution(self, player_id: int) -> List[Dict]:
         """
         Get histogram data of player's bets.
-        
+
+        Drawn from the same rounds as get_player_stats, so the histogram adds
+        up to the player's total_rounds.
+
         Args:
             player_id: ID of the player
-            
+
         Returns:
             List of dictionaries with bet amounts and counts
         """
-        bets = self.db.query(
-            Round.bet,
-            func.count(Round.id).label('count')
-        ).filter(Round.player_id == player_id)\
-         .group_by(Round.bet)\
-         .order_by(Round.bet).all()
-        
-        return [{"bet": b.bet, "count": b.count} for b in bets]
+        return bet_histogram(lifetime_rounds(self.db, player_id).all())

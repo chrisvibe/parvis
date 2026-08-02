@@ -97,6 +97,9 @@ class GameStats(BaseModel):
     successful_bets: int
     failed_bets: int
     average_bet: float
+    # Same definition as PlayerStats.win_rate, so a player's per-game figures
+    # and their lifetime figures are directly comparable.
+    win_rate: float = 0.0
 
 class PlayerStats(BaseModel):
     player_id: int

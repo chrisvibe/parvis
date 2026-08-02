@@ -17,7 +17,9 @@ from models import GameCreate, GameStats
 from utils import (
     get_game_or_404,
     calculate_score,
-    validate_positive_int
+    validate_positive_int,
+    aggregate_rounds,
+    rounds_in_game
 )
 from constants import DEFAULT_GAME_TYPE
 
@@ -234,49 +236,49 @@ class GameService:
     def get_game_stats(self, game_id: int) -> List[GameStats]:
         """
         Get statistics for all players in a game.
-        
+
+        Uses the same aggregation as the lifetime figures (utils/stats.py), so
+        summing these rows over a player's finished games reproduces their
+        lifetime totals exactly. Reported for the game whatever its state — this
+        is the live scoreboard.
+
         Args:
             game_id: ID of the game
-            
+
         Returns:
             List of GameStats for each player
         """
-        game = get_game_or_404(game_id, self.db)
-        
-        # Get all players in the game
+        get_game_or_404(game_id, self.db)
+
+        # One query for the whole game, then split per player in Python: a
+        # game has a handful of players, and this keeps the round-filtering
+        # rules in exactly one place.
+        rounds_by_player = {}
+        for r in rounds_in_game(self.db, game_id).all():
+            rounds_by_player.setdefault(r.player_id, []).append(r)
+
         game_players = self.db.query(GamePlayer)\
             .filter(GamePlayer.game_id == game_id).all()
-        
+
         result = []
         for gp in game_players:
-            # Get player info
             player = self.db.query(Player)\
                 .filter(Player.id == gp.player_id).first()
             if not player:
                 continue
-            
-            # Get stats from rounds (ONLY within game.total_rounds)
-            rounds = self.db.query(Round).filter(
-                Round.game_id == game_id,
-                Round.player_id == gp.player_id,
-                Round.round_number <= game.total_rounds
-            ).all()
-            
-            total_score = sum(r.score or 0 for r in rounds)
-            rounds_played = len(rounds)
-            successful_bets = sum(1 for r in rounds if r.success)
-            failed_bets = rounds_played - successful_bets
-            average_bet = sum(r.bet for r in rounds) / rounds_played if rounds_played > 0 else 0.0
-            
+
+            totals = aggregate_rounds(rounds_by_player.get(gp.player_id, []))
+
             result.append(GameStats(
                 game_id=game_id,
                 player_id=player.id,
                 player_alias=player.alias,
-                total_score=total_score,
-                rounds_played=rounds_played,
-                successful_bets=successful_bets,
-                failed_bets=failed_bets,
-                average_bet=average_bet
+                total_score=totals.total_score,
+                rounds_played=totals.rounds_played,
+                successful_bets=totals.successful_bets,
+                failed_bets=totals.failed_bets,
+                average_bet=totals.average_bet,
+                win_rate=totals.win_rate
             ))
-        
+
         return result
