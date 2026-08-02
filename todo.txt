@@ -1,5 +1,0 @@
-make sure statistics make sense, do we need rounds in final standings?
-add historical pics to immich
-add links to immich albums
-improve visual theme?
-add hall of fame
