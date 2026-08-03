@@ -81,16 +81,17 @@ export const buildFamilyTree = (players, searchTerm = '', idsToShow = null) => {
     
     matchingIds.forEach(id => addAncestorsAndDescendants(id));
     
-    // Filter tree to only relevant nodes
-    const filterTree = (nodes) => {
+    // Filter tree to only relevant nodes. Same loop guard as the D3 converter:
+    // a cycle in the data would otherwise recurse forever here too.
+    const filterTree = (nodes, ancestors = new Set()) => {
       return nodes
-        .filter(node => relevantIds.has(node.id))
+        .filter(node => relevantIds.has(node.id) && !ancestors.has(node.id))
         .map(node => ({
           ...node,
-          children: filterTree(node.children)
+          children: filterTree(node.children, new Set(ancestors).add(node.id))
         }));
     };
-    
+
     return filterTree(allRoots);
   }
   
@@ -108,20 +109,32 @@ export const buildFamilyTree = (players, searchTerm = '', idsToShow = null) => {
  * If multiple roots (forest), wraps them under an invisible root
  */
 export const convertToD3TreeFormat = (familyTree) => {
-  const convert = (node) => ({
-    name: node.alias,
-    attributes: {
-      id: node.id,
-      firstName: node.first_name || '',
-      middleName: node.middle_name || '',
-      lastName: node.last_name || '',
-      birthdate: node.birthdate || '',
-      age: node.birthdate ? calculateAge(node.birthdate) : null
-    },
-    children: node.children.map(convert)
-  });
-  
-  const converted = familyTree.map(convert);
+  // `ancestors` holds the ids on the path from the root down to this node. If a
+  // node turns up inside its own ancestry the data contains a loop (A parent of
+  // B, B parent of A), and recursing further never terminates — which used to
+  // take the whole page down with it. The server now refuses to store such a
+  // pair, but a database that already contains one must still render, so stop
+  // descending at the repeat and mark it instead.
+  const convert = (node, ancestors = new Set()) => {
+    const looping = ancestors.has(node.id);
+    const nextAncestors = new Set(ancestors).add(node.id);
+
+    return {
+      name: node.alias,
+      attributes: {
+        id: node.id,
+        firstName: node.first_name || '',
+        middleName: node.middle_name || '',
+        lastName: node.last_name || '',
+        birthdate: node.birthdate || '',
+        age: node.birthdate ? calculateAge(node.birthdate) : null,
+        ...(looping ? { isLoop: true } : {})
+      },
+      children: looping ? [] : node.children.map(child => convert(child, nextAncestors))
+    };
+  };
+
+  const converted = familyTree.map(node => convert(node));
   
   // If multiple roots (forest), wrap in an invisible parent
   if (converted.length > 1) {

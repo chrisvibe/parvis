@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from typing import List, Dict
 from fastapi import HTTPException
 
-from database import Player
+from database import GamePlayer, Player, Round
 from models import PlayerCreate, PlayerStats
 from utils import (
     get_player_or_404,
@@ -113,6 +113,7 @@ class PlayerService:
             setattr(db_player, key, value)
         
         # Update parent relationships
+        self._reject_parent_cycles(player_id, player_data.parent_ids)
         db_player.parents.clear()
         if player_data.parent_ids:
             for parent_id in player_data.parent_ids:
@@ -125,14 +126,82 @@ class PlayerService:
         self.db.refresh(db_player)
         return db_player
     
+    def _reject_parent_cycles(self, player_id: int, parent_ids: List[int]) -> None:
+        """
+        Refuse a parent assignment that would make the family tree circular.
+
+        The API used to accept A as a parent of B *and* B as a parent of A. The
+        tree renderer then recursed until the tab died — a white page with no
+        way back, from data the API had happily stored. The frontend only ever
+        blocked the one-step case (a player being their own parent), which
+        leaves every longer loop open.
+
+        A proposed parent is illegal when the player is already somewhere above
+        it, so walk up from each candidate and see whether we arrive back at the
+        player.
+
+        Raises:
+            HTTPException: 400 if the assignment would close a loop
+        """
+        pending = list(parent_ids or [])
+        seen = set()
+
+        while pending:
+            candidate = pending.pop()
+            if candidate == player_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "That would make the family tree circular — the player "
+                        "is already an ancestor of one of these parents."
+                    ),
+                )
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+
+            parent = self.db.query(Player).filter(Player.id == candidate).first()
+            if parent:
+                pending.extend(p.id for p in parent.parents)
+
     def delete_player(self, player_id: int) -> None:
         """
-        Delete a player.
-        
+        Delete a player who has no game history.
+
+        rounds.player_id is NOT NULL, so SQLAlchemy's default "null out the
+        child rows" on delete raises an IntegrityError and the request dies as a
+        500 with nothing useful in it. A player who has played is not deletable,
+        which is a conflict with the current state, not a server fault — so say
+        so, and say which games are in the way.
+
         Args:
             player_id: ID of the player to delete
+
+        Raises:
+            HTTPException: 409 if the player has game history
         """
         player = get_player_or_404(player_id, self.db)
+
+        game_ids = sorted({
+            r.game_id for r in self.db.query(Round.game_id)
+            .filter(Round.player_id == player_id).distinct()
+        } | {
+            gp.game_id for gp in self.db.query(GamePlayer.game_id)
+            .filter(GamePlayer.player_id == player_id).distinct()
+        })
+
+        if game_ids:
+            shown = ", ".join(str(g) for g in game_ids[:5])
+            more = f" and {len(game_ids) - 5} more" if len(game_ids) > 5 else ""
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{player.alias} has played in {len(game_ids)} game(s) "
+                    f"({shown}{more}) and cannot be deleted. Delete those games "
+                    f"first if this player really should be removed."
+                ),
+            )
+
         self.db.delete(player)
         self.db.commit()
     

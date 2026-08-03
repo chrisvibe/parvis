@@ -4,6 +4,7 @@ Round service layer for Parvis.
 Handles round creation, updates, and validation.
 """
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import List, Dict
 from fastapi import HTTPException
@@ -112,30 +113,39 @@ class RoundService:
             bet: Bet amount
             success: Whether the bet was successful
             
+        Two people editing the same game matrix can reach the lookup below at
+        the same time, both see no row, and both insert. The unique index on
+        (game_id, round_number, player_id) is what stops that ending in two rows
+        whose scores are both counted; this method's job is to lose that race
+        gracefully rather than 500. On collision it re-reads the row the other
+        writer committed and applies the update to it, so the last write wins —
+        the same outcome as if the two edits had arrived in sequence.
+
         Returns:
             Dictionary with round data
         """
-        game = get_game_or_404(game_id, self.db)
-        
+        get_game_or_404(game_id, self.db)
+
         # Validate bet range
         validate_bet(bet, round_number)
-        
-        # Find existing round
-        round_entry = self.db.query(Round).filter(
-            Round.game_id == game_id,
-            Round.round_number == round_number,
-            Round.player_id == player_id
-        ).first()
-        
+
         score = calculate_score(bet, success)
-        
+
+        def existing():
+            return self.db.query(Round).filter(
+                Round.game_id == game_id,
+                Round.round_number == round_number,
+                Round.player_id == player_id
+            ).first()
+
+        round_entry = existing()
+
         if round_entry:
-            # Update existing
             round_entry.bet = bet
             round_entry.success = success
             round_entry.score = score
+            self.db.commit()
         else:
-            # Create new
             round_entry = Round(
                 game_id=game_id,
                 round_number=round_number,
@@ -145,10 +155,24 @@ class RoundService:
                 score=score
             )
             self.db.add(round_entry)
-        
-        self.db.commit()
+            try:
+                self.db.commit()
+            except IntegrityError:
+                # Someone else inserted this cell between our lookup and our
+                # commit. Their row is the one that exists; update it.
+                self.db.rollback()
+                round_entry = existing()
+                if round_entry is None:
+                    # Not the duplicate-key case after all — a genuine
+                    # constraint failure the caller should hear about.
+                    raise
+                round_entry.bet = bet
+                round_entry.success = success
+                round_entry.score = score
+                self.db.commit()
+
         self.db.refresh(round_entry)
-        
+
         return {
             "id": round_entry.id,
             "game_id": round_entry.game_id,

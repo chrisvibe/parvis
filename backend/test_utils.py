@@ -509,6 +509,237 @@ class TestParentIds:
         assert service.get_player_family(1)["child_ids"] == [3]
 
 
+def _memory_db():
+    """A fresh in-memory database with the real schema."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from database import Base
+
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    return sessionmaker(bind=engine)()
+
+
+class TestRoundUniqueness:
+    """
+    One row per (game, round, player) — enforced by the database, not by hope.
+
+    upsert_round does read-then-write. Two writers editing the same cell of the
+    game matrix can both read "no row" and both insert, and the duplicate is
+    invisible: nothing errors, the score is simply counted twice.
+    """
+
+    GAME, ADA, BO = 1, 1, 2
+    # Bets are capped at the round number, so exercise this on a later round.
+    ROUND = 5
+
+    @pytest.fixture
+    def db(self):
+        from database import Game, Player
+
+        session = _memory_db()
+        session.add(Game(id=self.GAME, total_rounds=5, is_active=True, is_valid=False))
+        for pid, alias in ((self.ADA, "ada"), (self.BO, "bo")):
+            session.add(Player(id=pid, alias=alias, email=f"{alias}@example.com"))
+        session.commit()
+        yield session
+        session.close()
+
+    def _rows(self, db):
+        from database import Round
+        return db.query(Round).filter(
+            Round.game_id == self.GAME,
+            Round.round_number == self.ROUND,
+            Round.player_id == self.ADA,
+        ).all()
+
+    def test_the_database_refuses_a_duplicate_cell(self, db):
+        from sqlalchemy.exc import IntegrityError
+        from database import Round
+
+        for _ in range(2):
+            db.add(Round(game_id=self.GAME, round_number=1, player_id=self.ADA,
+                         bet=1, success=True, score=11))
+        with pytest.raises(IntegrityError):
+            db.commit()
+        db.rollback()
+
+    def test_the_same_cell_can_hold_different_players(self, db):
+        from database import Round
+
+        db.add(Round(game_id=self.GAME, round_number=1, player_id=self.ADA,
+                     bet=1, success=True, score=11))
+        db.add(Round(game_id=self.GAME, round_number=1, player_id=self.BO,
+                     bet=2, success=True, score=12))
+        db.commit()  # must not raise
+
+    def test_upserting_twice_updates_rather_than_duplicates(self, db):
+        from services.round_service import RoundService
+
+        service = RoundService(db)
+        service.upsert_round(self.GAME, self.ROUND, self.ADA, 3, True)
+        result = service.upsert_round(self.GAME, self.ROUND, self.ADA, 5, False)
+
+        assert len(self._rows(db)) == 1
+        assert result["bet"] == 5
+        assert result["success"] is False
+        assert result["score"] == 0
+
+    def test_losing_the_race_updates_the_winners_row(self, db):
+        """
+        The branch that only fires under concurrency: our lookup misses, someone
+        else's insert lands first, and our commit hits the constraint. The edit
+        must still take effect instead of surfacing as a 500.
+        """
+        from database import Round
+        from services.round_service import RoundService
+
+        service = RoundService(db)
+        service.upsert_round(self.GAME, self.ROUND, self.ADA, 3, True)
+
+        class _SawNothing:
+            """Stands in for the query that ran a moment too early."""
+            def filter(self, *args, **kwargs): return self
+            def first(self): return None
+
+        real_query = db.query
+        missed = {"done": False}
+
+        def query_that_misses_once(*args, **kwargs):
+            if args and args[0] is Round and not missed["done"]:
+                missed["done"] = True
+                return _SawNothing()
+            return real_query(*args, **kwargs)
+
+        db.query = query_that_misses_once
+        try:
+            result = service.upsert_round(self.GAME, self.ROUND, self.ADA, 4, True)
+        finally:
+            db.query = real_query
+
+        assert missed["done"], "the test did not exercise the collision path"
+        assert len(self._rows(db)) == 1
+        assert result["bet"] == 4
+        assert result["score"] == 14
+
+
+class TestDeletePlayer:
+    """Deleting a player who has played is a conflict, not a server error."""
+
+    @pytest.fixture
+    def db(self):
+        from database import Game, GamePlayer, Player, Round
+
+        session = _memory_db()
+        session.add(Game(id=1, total_rounds=2, is_active=False, is_valid=True))
+        session.add(Player(id=1, alias="veteran", email="v@example.com"))
+        session.add(Player(id=2, alias="newcomer", email="n@example.com"))
+        session.add(Player(id=3, alias="spectator", email="s@example.com"))
+        session.add(GamePlayer(game_id=1, player_id=1))
+        session.add(GamePlayer(game_id=1, player_id=3))
+        session.add(Round(game_id=1, round_number=1, player_id=1,
+                          bet=2, success=True, score=12))
+        session.commit()
+        yield session
+        session.close()
+
+    def test_a_player_with_history_is_refused_with_409(self, db):
+        from services.player_service import PlayerService
+
+        with pytest.raises(HTTPException) as excinfo:
+            PlayerService(db).delete_player(1)
+
+        assert excinfo.value.status_code == 409
+        assert "veteran" in excinfo.value.detail
+        assert "1 game" in excinfo.value.detail
+
+    def test_joining_a_game_counts_as_history_even_without_rounds(self, db):
+        from services.player_service import PlayerService
+
+        with pytest.raises(HTTPException) as excinfo:
+            PlayerService(db).delete_player(3)
+        assert excinfo.value.status_code == 409
+
+    def test_a_player_who_never_played_is_deleted(self, db):
+        from database import Player
+        from services.player_service import PlayerService
+
+        PlayerService(db).delete_player(2)
+        assert db.query(Player).filter(Player.id == 2).first() is None
+
+    def test_a_missing_player_is_still_404(self, db):
+        from services.player_service import PlayerService
+
+        with pytest.raises(HTTPException) as excinfo:
+            PlayerService(db).delete_player(999)
+        assert excinfo.value.status_code == 404
+
+
+class TestParentCycles:
+    """
+    The API must not store a family tree that cannot be drawn.
+
+    A and B as each other's parent used to be accepted, after which the tree
+    renderer recursed until the page died.
+    """
+
+    @pytest.fixture
+    def db(self):
+        from database import Player
+
+        session = _memory_db()
+        for pid, alias in ((1, "gran"), (2, "mum"), (3, "kid"), (4, "stranger")):
+            session.add(Player(id=pid, alias=alias, email=f"{alias}@example.com"))
+        session.commit()
+        # gran -> mum -> kid
+        for child_id, parent_id in ((2, 1), (3, 2)):
+            child = session.query(Player).filter(Player.id == child_id).first()
+            child.parents.append(session.query(Player).filter(Player.id == parent_id).first())
+        session.commit()
+        yield session
+        session.close()
+
+    def _set_parents(self, db, player_id, parent_ids, alias):
+        from models import PlayerCreate
+        from services.player_service import PlayerService
+
+        return PlayerService(db).update_player(player_id, PlayerCreate(
+            alias=alias, email=f"{alias}@example.com", parent_ids=parent_ids
+        ))
+
+    def test_a_direct_loop_is_refused(self, db):
+        # kid is mum's parent, while mum is already kid's parent
+        with pytest.raises(HTTPException) as excinfo:
+            self._set_parents(db, 2, [3], "mum")
+        assert excinfo.value.status_code == 400
+        assert "circular" in excinfo.value.detail
+
+    def test_a_longer_loop_is_refused(self, db):
+        # gran is three generations up; making kid its parent closes the ring
+        with pytest.raises(HTTPException) as excinfo:
+            self._set_parents(db, 1, [3], "gran")
+        assert excinfo.value.status_code == 400
+
+    def test_self_parenting_is_refused(self, db):
+        with pytest.raises(HTTPException) as excinfo:
+            self._set_parents(db, 3, [3], "kid")
+        assert excinfo.value.status_code == 400
+
+    def test_an_ordinary_parent_is_still_accepted(self, db):
+        updated = self._set_parents(db, 4, [2], "stranger")
+        assert updated.parent_ids == [2]
+
+    def test_a_second_parent_on_the_same_child_is_fine(self, db):
+        # Two parents is normal; only a loop is not.
+        updated = self._set_parents(db, 3, [2, 4], "kid")
+        assert sorted(updated.parent_ids) == [2, 4]
+
+
 # Run with: pytest test_utils.py -v
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

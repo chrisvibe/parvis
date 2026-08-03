@@ -1,7 +1,8 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, Date, ForeignKey, DateTime, Table, text
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, Date, ForeignKey, DateTime, Table, UniqueConstraint, text
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime
 import os
+import sys
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://parvis:parvis@db:5432/parvis")
 
@@ -85,7 +86,16 @@ class GamePlayer(Base):
 
 class Round(Base):
     __tablename__ = "rounds"
-    
+
+    # One row per player per round of a game. Without this the read-then-write
+    # in upsert_round has nothing behind it: two people editing the same game
+    # matrix can both find no row and both insert, and the duplicate scores are
+    # counted twice with nothing to show that it happened.
+    __table_args__ = (
+        UniqueConstraint("game_id", "round_number", "player_id",
+                         name="uq_round_game_number_player"),
+    )
+
     id = Column(Integer, primary_key=True, index=True)
     game_id = Column(Integer, ForeignKey("games.id"), nullable=False)
     round_number = Column(Integer, nullable=False)
@@ -107,6 +117,7 @@ def get_db():
 def init_db():
     Base.metadata.create_all(bind=engine)
     _add_missing_columns()
+    _add_missing_constraints()
 
 
 def _add_missing_columns():
@@ -120,3 +131,43 @@ def _add_missing_columns():
     """
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE players ADD COLUMN IF NOT EXISTS email VARCHAR"))
+
+
+def _add_missing_constraints():
+    """
+    Add constraints introduced after a database was first created.
+
+    Same deal as _add_missing_columns: create_all() will not retrofit these onto
+    an existing table. Written as a unique INDEX rather than a table constraint
+    because CREATE UNIQUE INDEX takes IF NOT EXISTS and ADD CONSTRAINT does not;
+    the constraint declared on the model produces an index of the same name, so
+    a database created either way ends up in the same place and reruns are
+    no-ops.
+
+    A database that already contains duplicates cannot take the index. Rather
+    than crash every startup until someone intervenes, that case is reported
+    loudly and skipped — the app still runs, just without the new guarantee.
+    """
+    with engine.begin() as conn:
+        duplicates = conn.execute(text("""
+            SELECT game_id, round_number, player_id, COUNT(*) AS n
+            FROM rounds
+            GROUP BY game_id, round_number, player_id
+            HAVING COUNT(*) > 1
+        """)).fetchall()
+
+        if duplicates:
+            print(
+                "WARNING: rounds contains duplicate (game_id, round_number, "
+                f"player_id) rows, so the unique index was not created. "
+                f"{len(duplicates)} duplicated key(s): {duplicates[:5]}. "
+                "Scores for these are being double-counted; de-duplicate, then "
+                "restart to apply the constraint.",
+                file=sys.stderr, flush=True,
+            )
+            return
+
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_round_game_number_player "
+            "ON rounds (game_id, round_number, player_id)"
+        ))

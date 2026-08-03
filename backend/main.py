@@ -18,11 +18,19 @@ from auth import (
 app = FastAPI(title="Parvis API")
 
 # CORS
-origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+#
+# allow_credentials is off deliberately. Combined with an "*" origin — which is
+# what CORS_ORIGINS is set to in practice — it is invalid per the CORS spec and
+# browsers reject the pair outright, so the permissive setting bought nothing
+# and would have failed at the worst moment. Nothing here needs it either: the
+# site and admin passwords travel as request headers, not cookies, and headers
+# are unaffected by this flag. If cookie or Basic auth is ever introduced, this
+# has to become an explicit origin list rather than being switched back on.
+origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

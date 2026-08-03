@@ -47,29 +47,47 @@ so it can be picked up cold.
       work around its absence and is gone, taking with it a hand-maintained
       second copy of the player field list. Covered by 8 tests (41 total).
 
-- [ ] **No unique constraint on `rounds(game_id, round_number, player_id)`.**
-      `round_service.upsert_round` does read-then-write with nothing behind it,
-      so two people editing the game matrix at once can insert duplicate rows
-      and silently double-count a score. Add the constraint, then let the upsert
-      rely on it.
+- [x] **No unique constraint on `rounds(game_id, round_number, player_id)`.**
+      *(fixed 2026-08-03)* `upsert_round` did read-then-write with nothing
+      behind it, so two people editing the game matrix at once could both read
+      "no row" and both insert — a silently double-counted score.
 
-- [ ] **Deleting a player with game history returns a 500.** `rounds.player_id`
-      is `NOT NULL`, so SQLAlchemy's default null-out on delete raises an
-      IntegrityError. Should be a 409 with a message that says what is actually
-      wrong. The frontend currently guesses ("They may have game history") on
-      any error.
+      The constraint is on the model and, for databases that predate it, added
+      at startup by `_add_missing_constraints()` as a unique index of the same
+      name (`CREATE UNIQUE INDEX IF NOT EXISTS` is idempotent where `ADD
+      CONSTRAINT` is not). A database that already holds duplicates is reported
+      loudly on stderr and skipped rather than crash-looping on every boot.
+      `upsert_round` now loses the race gracefully: on IntegrityError it
+      re-reads the winner's row and applies the edit there, so last write wins
+      exactly as if the two edits had arrived in sequence.
 
-- [ ] **A parent cycle crashes the family tree.** The API accepts A as parent of
-      B and B as parent of A; `familyTree.js convertToD3TreeFormat` then
-      recurses forever and the page goes white. The frontend only blocks a
-      player being their own parent. Reject cycles server-side, and add a
-      visited set in the converter. Related: a child with two parents is pushed
-      into both parents' `children`, so that subtree renders twice.
+- [x] **Deleting a player with game history returns a 500.** *(fixed
+      2026-08-03)* `rounds.player_id` is `NOT NULL`, so the default null-out
+      on delete raised an IntegrityError. Now a 409 naming the player and the
+      games in the way, so the frontend no longer has to guess. Membership of a
+      game counts as history even with no rounds played.
 
-- [ ] **CORS wildcard with credentials.** `allow_origins=["*"]` together with
-      `allow_credentials=True` is invalid per the CORS spec and browsers reject
-      the combination. Harmless while nothing sends cookies; a trap the moment
-      something does.
+- [x] **A parent cycle crashes the family tree.** *(fixed 2026-08-03)* The API
+      accepted A as parent of B and B as parent of A, after which
+      `convertToD3TreeFormat` recursed until the stack blew and the page went
+      white — confirmed by reproducing it.
+
+      `PUT /players/{id}` now walks up from each proposed parent and returns 400
+      if it arrives back at the player, so no loop can be stored (the frontend
+      only ever blocked the one-step case). `convertToD3TreeFormat` and
+      `filterTree` each carry the ids on the current path and stop at a repeat,
+      marking it `isLoop`, so a database that already contains one still
+      renders. Still open, deliberately: a child with two parents renders under
+      both, because a tree cannot draw a DAG.
+
+- [x] **CORS wildcard with credentials.** *(fixed 2026-08-03)* An "*"
+      origin together with `allow_credentials=True` is invalid per the CORS
+      spec and browsers reject the pair, so the permissive setting bought
+      nothing. `allow_credentials` is now False, which is what the app
+      actually needs: the site and admin passwords travel as request headers,
+      not cookies, and headers are unaffected by the flag. If cookie or Basic
+      auth ever arrives, this must become an explicit origin list rather than
+      being switched back on.
 
 ## Cleanups
 
