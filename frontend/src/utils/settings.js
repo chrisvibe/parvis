@@ -24,8 +24,9 @@ export const getDefaultSettings = () => ({
   },
   tree: {
     node_radius: 20,
-    vertical_spacing: 100,
-    horizontal_spacing: 150,
+    // px between neighbouring nodes — read by FamilyTreeSelector
+    vertical_spacing: 80,
+    horizontal_spacing: 90,
     zoom_enabled: true,
     pan_enabled: true,
     initial_depth: 3,

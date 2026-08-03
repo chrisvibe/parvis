@@ -149,6 +149,76 @@ export const convertToD3TreeFormat = (familyTree) => {
   return converted.length > 0 ? converted[0] : { name: 'No players', attributes: { id: -1 }, children: [] };
 };
 
+// Courier New advances 0.6em per glyph, and every glyph the same — which is the
+// only reason a label can be measured with arithmetic instead of a hidden DOM
+// node and a reflow.
+const MONOSPACE_ADVANCE = 0.6;
+
+// Text sits on one line through the middle of the circle, so the full diameter
+// is available in principle; leave a margin so glyphs do not touch the stroke.
+const USABLE_DIAMETER_FRACTION = 0.85;
+
+const DEFAULT_MAX_FONT_SIZE = 12;
+const DEFAULT_MIN_FONT_SIZE = 9;
+
+/**
+ * Choose what to write inside a node and how big to write it.
+ *
+ * Preference order, stopping at the first thing that fits:
+ *   1. the alias itself, as large as possible
+ *   2. the alias shrunk, down to a floor where it is still readable
+ *   3. initials — "John Cleave Doe" becomes "JCD"
+ *   4. a truncated form with an ellipsis, for a single long word that has no
+ *      initials to fall back on ("Bartholomew" cannot become anything shorter
+ *      and still be itself)
+ *
+ * The full alias is always in the node's <title>, so nothing is lost by
+ * abbreviating here.
+ *
+ * @param {string} name - the alias to display
+ * @param {number} radius - node radius in px
+ * @returns {{ text: string, fontSize: number }}
+ */
+export const fitNodeLabel = (name, radius, options = {}) => {
+  const maxFontSize = options.maxFontSize ?? DEFAULT_MAX_FONT_SIZE;
+  const minFontSize = options.minFontSize ?? DEFAULT_MIN_FONT_SIZE;
+
+  const label = (name || '').trim();
+  if (!label) return { text: '', fontSize: maxFontSize };
+
+  const usableWidth = 2 * radius * USABLE_DIAMETER_FRACTION;
+  const fits = (text, size) => text.length * size * MONOSPACE_ADVANCE <= usableWidth;
+
+  // Largest size in the allowed range at which `text` fits, or null.
+  const bestSizeFor = (text) => {
+    for (let size = maxFontSize; size >= minFontSize; size -= 0.5) {
+      if (fits(text, size)) return size;
+    }
+    return null;
+  };
+
+  const fullSize = bestSizeFor(label);
+  if (fullSize !== null) return { text: label, fontSize: fullSize };
+
+  // Split on the separators people actually use in names.
+  const words = label.split(/[\s._-]+/).filter(Boolean);
+  if (words.length > 1) {
+    const initials = words.map(w => w[0].toUpperCase()).join('');
+    const initialsSize = bestSizeFor(initials);
+    if (initialsSize !== null) return { text: initials, fontSize: initialsSize };
+    return { text: truncate(initials, usableWidth, minFontSize), fontSize: minFontSize };
+  }
+
+  return { text: truncate(label, usableWidth, minFontSize), fontSize: minFontSize };
+};
+
+/** Cut `text` to what fits at `size`, marking the cut with an ellipsis. */
+const truncate = (text, usableWidth, size) => {
+  const maxChars = Math.floor(usableWidth / (size * MONOSPACE_ADVANCE));
+  if (maxChars <= 1) return text.slice(0, 1);
+  return text.slice(0, maxChars - 1) + '…';
+};
+
 const calculateAge = (birthdate) => {
   const today = new Date();
   const birth = new Date(birthdate);

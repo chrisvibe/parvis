@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import Tree from 'react-d3-tree';
 import debounce from 'lodash.debounce';
-import { buildFamilyTree, convertToD3TreeFormat, getRecentPlayers } from '../utils/familyTree';
+import { buildFamilyTree, convertToD3TreeFormat, fitNodeLabel, getRecentPlayers } from '../utils/familyTree';
 import { getSetting } from '../utils/settings';
 import '../styles/FamilyTreeSelector.css';
 
@@ -15,6 +15,13 @@ function FamilyTreeSelector({ players, selectedPlayerIds, onSelectionChange }) {
   const debounceMs = getSetting('search.debounce_ms', 300);
   const nodeRadius = getSetting('tree.node_radius', 20);
   const colors = getSetting('colors', {});
+
+  // These two have been in settings.yaml all along; the tree ignored them and
+  // used hardcoded 200x100 with a further 1.5x sibling separation, which left
+  // roughly 300px between 40px nodes. Now they mean what they say: the distance
+  // in px between neighbouring nodes.
+  const horizontalSpacing = getSetting('tree.horizontal_spacing', 90);
+  const verticalSpacing = getSetting('tree.vertical_spacing', 80);
 
   // Debounced search
   const debouncedSearch = useMemo(
@@ -83,7 +90,15 @@ function FamilyTreeSelector({ players, selectedPlayerIds, onSelectionChange }) {
     
     const isSelected = selectedPlayerIds.includes(nodeDatum.attributes.id);
     const fillColor = isSelected ? colors.node_selected : colors.node_default;
-    
+
+    // Long aliases used to run straight out of the circle. Fit what we can and
+    // fall back to initials; the full alias stays in the tooltip below.
+    const label = fitNodeLabel(nodeDatum.name, nodeRadius);
+
+    // Baseline sits about a third of the cap height below the centre, so the
+    // text stays optically centred whatever size fitNodeLabel settled on.
+    const baselineY = label.fontSize * 0.35;
+
     return (
       <g onClick={() => handleNodeClick({ data: nodeDatum })}>
         {/* Filled circle */}
@@ -100,17 +115,17 @@ function FamilyTreeSelector({ players, selectedPlayerIds, onSelectionChange }) {
           fill="#0a0e27"
           strokeWidth="0"
           x="0"
-          y="5"
+          y={baselineY}
           textAnchor="middle"
-          style={{ 
+          style={{
             fontFamily: 'Courier New, monospace',
-            fontSize: '12px',
+            fontSize: `${label.fontSize}px`,
             fontWeight: 'bold',
             cursor: 'pointer',
             pointerEvents: 'none'
           }}
         >
-          {nodeDatum.name}
+          {label.text}
         </text>
         
         {/* Tooltip info on hover */}
@@ -203,13 +218,13 @@ function FamilyTreeSelector({ players, selectedPlayerIds, onSelectionChange }) {
               orientation="vertical"
               pathFunc="step"
               pathClassFunc={pathClassFunc}
-              separation={{ siblings: 1.5, nonSiblings: 2 }}
-              nodeSize={{ x: 200, y: 100 }}
+              separation={{ siblings: 1, nonSiblings: 1.35 }}
+              nodeSize={{ x: horizontalSpacing, y: verticalSpacing }}
               renderCustomNodeElement={renderCustomNode}
               zoom={0.8}
               enableLegacyTransitions={true}
               transitionDuration={300}
-              depthFactor={100}
+              depthFactor={verticalSpacing}
               collapsible={false}
             />
           ) : (

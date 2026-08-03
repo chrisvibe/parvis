@@ -10,8 +10,8 @@ display:
   
 tree:
   node_radius: 20
-  vertical_spacing: 100
-  horizontal_spacing: 150
+  vertical_spacing: 80
+  horizontal_spacing: 90
   zoom_enabled: true
   pan_enabled: true
   initial_depth: 3  # How many generations to show initially
