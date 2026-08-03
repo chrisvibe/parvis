@@ -67,7 +67,7 @@ services:
   # Automated database backup sidecar (standardized across services).
   #   - Runs backup.sh on BACKUP_CRON_SCHEDULE via dcron, plus once at startup.
   #   - Dumps are Postgres custom-format (.dump); restore with restore_db.sh.
-  #   - Backups land on the parvis_backups volume (NAS-backed via the infra override).
+  #   - Dumps land on the parvis_backups volume.
   # Manual ops:
   #   docker compose exec backup /scripts/backup.sh                 # back up now
   #   docker compose exec backup ls -lh /backups/                   # list dumps
@@ -100,8 +100,8 @@ services:
 volumes:
   db_data:
     name: parvis_db
-  # Base: plain local volume so parvis runs standalone. The infra override swaps this
-  # to an NFS mount on the NAS (see overrides/parvis.override.yaml).
+  # A plain local volume, so parvis runs standalone. A deployment that wants the
+  # dumps on separate physical media redefines this volume from the outside.
   parvis_backups:
     name: parvis_backups
 

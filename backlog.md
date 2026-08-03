@@ -150,19 +150,18 @@ so it can be picked up cold.
 
 ## Testing
 
-- [ ] Verify independent mode works (LAN access without the self-hosting
-      framework web network override), i.e. `docker compose up -d` in
-      `services/parvis/` with only the base `docker-compose.yaml`. Should be
-      reachable directly on its own port from the LAN.
+- [ ] Verify independent mode works: `docker compose up -d` here with only the
+      base `docker-compose.yaml` and nothing layered on top. Should be reachable
+      directly on its own port from the LAN.
 
 ## Notes for whoever deploys this
 
 - The **backend hot-reloads**: `./backend` is bind-mounted and uvicorn runs with
   `--reload`, so copying a file in is enough.
-- The **frontend does not**, despite `command: npm start` in the base compose.
-  `overrides/parvis.override.yaml` replaces it with
-  `npm run build && npx serve -s build`, so a source change needs
-  `docker compose restart frontend` (a rebuild against the bind-mounted `src`,
-  a few minutes, no image rebuild).
+- The **frontend does not**, wherever it is deployed with a build-and-serve
+  command rather than the base compose's `npm start`. A source change then needs
+  `docker compose restart frontend` — a rebuild against the bind-mounted `src`,
+  a few minutes, no image rebuild. Check the running container's command if
+  unsure which mode you are in.
 - **New environment variables need `docker compose up -d backend`**, not
   `restart` — a reload does not pick them up.
