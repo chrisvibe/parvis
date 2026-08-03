@@ -45,6 +45,19 @@ class Player(Base):
         backref="children"
     )
 
+    @property
+    def parent_ids(self):
+        """
+        The parent relationship as plain ids, which is how the API expresses it.
+
+        Exposed on the model rather than in a serializer so that any response
+        model carrying a `parent_ids` field picks it up through
+        `from_attributes`. Without it pydantic finds no such attribute and
+        silently falls back to the field default — which is how three endpoints
+        came to report every player as having no parents.
+        """
+        return [p.id for p in self.parents]
+
 class Game(Base):
     __tablename__ = "games"
     

@@ -32,14 +32,20 @@ so it can be picked up cold.
       lifetime one. Covered by 12 new tests (33 total) built on a synthetic
       season, since there is no real game data yet.
 
-- [ ] **`parent_ids` is always `[]` in three endpoints.** `POST /players`,
-      `PUT /players/{id}` and `GET /players/{id}` all report no parents even
-      when the player has them — verified live. `schemas.Player` inherits
-      `parent_ids` from `PlayerBase`, but the ORM object exposes `parents`, so
-      `from_attributes` finds nothing and falls back to the default. `GET
-      /players` and `/players/{id}/family` are correct because they go through
-      `player_to_dict_with_relations`. Fix: route those three through the same
-      serializer, or give the ORM model a `parent_ids` property.
+- [x] **`parent_ids` is always `[]` in three endpoints.** *(fixed 2026-08-03)*
+      `POST /players`, `PUT /players/{id}` and `GET /players/{id}` reported no
+      parents even when the player had them. `schemas.Player` inherits
+      `parent_ids` from `PlayerBase`, but the ORM object only exposed
+      `parents`, so `from_attributes` found nothing and fell back to the field
+      default — an empty list, which fails silently. Only `GET /players` and
+      `/players/{id}/family` were right, because they went through
+      `player_to_dict_with_relations`.
+
+      Fixed on the ORM model: `Player.parent_ids` is now a property, so any
+      response model with that field picks it up and the class of bug cannot
+      come back on the next endpoint. `utils/serializers.py` existed only to
+      work around its absence and is gone, taking with it a hand-maintained
+      second copy of the player field list. Covered by 8 tests (41 total).
 
 - [ ] **No unique constraint on `rounds(game_id, round_number, player_id)`.**
       `round_service.upsert_round` does read-then-write with nothing behind it,

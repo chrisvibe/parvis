@@ -409,6 +409,106 @@ class TestStatsRules:
         assert stats.win_rate == 0.0
 
 
+class TestParentIds:
+    """
+    Parent relationships survive the trip through a response model.
+
+    The ORM stores parents as objects under `parents`; the API speaks
+    `parent_ids`. When only the serializer knew how to bridge the two, every
+    endpoint that returned an ORM object directly reported no parents at all —
+    and because the field has a default of [], nothing failed loudly.
+    """
+
+    @pytest.fixture
+    def db(self):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from sqlalchemy.pool import StaticPool
+        from database import Base, Player
+        from datetime import date
+
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(bind=engine)
+        session = sessionmaker(bind=engine)()
+
+        # mum and dad are both parents of kid; loner has nobody.
+        for pid, alias in ((1, "mum"), (2, "dad"), (3, "kid"), (4, "loner")):
+            session.add(Player(id=pid, alias=alias, email=f"{alias}@example.com",
+                               registration_date=date(2026, 1, 1)))
+        session.commit()
+        kid = session.query(Player).filter(Player.id == 3).first()
+        kid.parents.append(session.query(Player).filter(Player.id == 1).first())
+        kid.parents.append(session.query(Player).filter(Player.id == 2).first())
+        session.commit()
+
+        yield session
+        session.close()
+
+    def _kid(self, db):
+        from database import Player
+        return db.query(Player).filter(Player.id == 3).first()
+
+    def test_the_model_exposes_parents_as_ids(self, db):
+        assert sorted(self._kid(db).parent_ids) == [1, 2]
+
+    def test_no_parents_reads_as_empty(self, db):
+        from database import Player
+        loner = db.query(Player).filter(Player.id == 4).first()
+        assert loner.parent_ids == []
+
+    def test_player_response_carries_parent_ids(self, db):
+        """The bug: this used to validate to [] for a player with two parents."""
+        from models import Player as PlayerSchema
+
+        assert sorted(PlayerSchema.model_validate(self._kid(db)).parent_ids) == [1, 2]
+
+    def test_player_with_relations_carries_parent_ids(self, db):
+        from models import PlayerWithRelations
+
+        assert sorted(PlayerWithRelations.model_validate(self._kid(db)).parent_ids) == [1, 2]
+
+    def test_listing_players_keeps_parent_ids(self, db):
+        from models import PlayerWithRelations
+        from services.player_service import PlayerService
+
+        by_alias = {
+            p.alias: PlayerWithRelations.model_validate(p)
+            for p in PlayerService(db).get_all_players()
+        }
+        assert sorted(by_alias["kid"].parent_ids) == [1, 2]
+        assert by_alias["loner"].parent_ids == []
+
+    def test_created_player_reports_its_parents(self, db):
+        """POST /players validates the returned ORM object through Player."""
+        from models import Player as PlayerSchema, PlayerCreate
+        from services.player_service import PlayerService
+
+        created = PlayerService(db).create_player(PlayerCreate(
+            alias="grandkid", email="grandkid@example.com", parent_ids=[3]
+        ))
+        assert PlayerSchema.model_validate(created).parent_ids == [3]
+
+    def test_updated_player_reports_its_parents(self, db):
+        from models import Player as PlayerSchema, PlayerCreate
+        from services.player_service import PlayerService
+
+        updated = PlayerService(db).update_player(4, PlayerCreate(
+            alias="loner", email="loner@example.com", parent_ids=[1]
+        ))
+        assert PlayerSchema.model_validate(updated).parent_ids == [1]
+
+    def test_family_endpoint_agrees(self, db):
+        from services.player_service import PlayerService
+
+        service = PlayerService(db)
+        assert sorted(service.get_player_family(3)["parent_ids"]) == [1, 2]
+        assert service.get_player_family(1)["child_ids"] == [3]
+
+
 # Run with: pytest test_utils.py -v
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

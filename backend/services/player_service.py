@@ -13,7 +13,6 @@ from models import PlayerCreate, PlayerStats
 from utils import (
     get_player_or_404,
     get_player_by_alias,
-    player_to_dict_with_relations,
     aggregate_rounds,
     bet_histogram,
     games_finished,
@@ -27,15 +26,17 @@ class PlayerService:
     def __init__(self, db: Session):
         self.db = db
     
-    def get_all_players(self) -> List[Dict]:
+    def get_all_players(self) -> List[Player]:
         """
-        Get all players with their parent relationships.
-        
+        Get all players.
+
+        Parent relationships come along with them: the response model reads
+        `parent_ids` straight off the ORM object.
+
         Returns:
-            List of player dictionaries with parent_ids
+            List of Player instances
         """
-        players = self.db.query(Player).all()
-        return [player_to_dict_with_relations(p) for p in players]
+        return self.db.query(Player).all()
     
     def get_player(self, player_id: int) -> Player:
         """
@@ -150,7 +151,7 @@ class PlayerService:
         return {
             "id": player.id,
             "alias": player.alias,
-            "parent_ids": [p.id for p in player.parents],
+            "parent_ids": player.parent_ids,
             "child_ids": [c.id for c in player.children]
         }
     
