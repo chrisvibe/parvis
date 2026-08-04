@@ -94,10 +94,17 @@ class TestPlayerCreate:
         player = PlayerCreate(alias="tester", email="  player@example.com  ")
         assert player.email == "player@example.com"
 
-    def test_parents_remain_optional(self):
-        """Parents are not required — a player can be created without them."""
+    def test_relationships_remain_optional(self):
+        """
+        Relationships are not required — a player can be created without them.
+
+        They read as None rather than [], and the difference is load-bearing:
+        an omitted list leaves that relationship alone, an empty one clears it.
+        """
         player = PlayerCreate(alias="tester", email="player@example.com")
-        assert player.parent_ids == []
+        assert player.parent_ids is None
+        assert player.child_ids is None
+        assert player.partner_ids is None
 
     def test_other_fields_remain_optional(self):
         """Names and birthdate stay optional."""
@@ -713,17 +720,25 @@ class TestParentCycles:
         ))
 
     def test_a_direct_loop_is_refused(self, db):
-        # kid is mum's parent, while mum is already kid's parent
+        """
+        kid is mum's parent, while mum is already kid's parent.
+
+        Caught as a contradiction rather than as a cycle, and the message says
+        so: since the request leaves mum's children alone, kid would end up
+        both parent and child of mum — which is the more precise complaint of
+        the two. The multi-step case below is the one that reads as circular.
+        """
         with pytest.raises(HTTPException) as excinfo:
             self._set_parents(db, 2, [3], "mum")
         assert excinfo.value.status_code == 400
-        assert "circular" in excinfo.value.detail
+        assert "both a parent and a child" in excinfo.value.detail
 
     def test_a_longer_loop_is_refused(self, db):
         # gran is three generations up; making kid its parent closes the ring
         with pytest.raises(HTTPException) as excinfo:
             self._set_parents(db, 1, [3], "gran")
         assert excinfo.value.status_code == 400
+        assert "circular" in excinfo.value.detail
 
     def test_self_parenting_is_refused(self, db):
         with pytest.raises(HTTPException) as excinfo:

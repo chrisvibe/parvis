@@ -2,19 +2,23 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import Tree from 'react-d3-tree';
 import debounce from 'lodash.debounce';
 import { buildFamilyTree, convertToD3TreeFormat, fitNodeLabel, getRecentPlayers } from '../utils/familyTree';
+import { moveItem } from '../utils/reorder';
 import { getSetting } from '../utils/settings';
+import { color } from '../utils/theme';
 import '../styles/FamilyTreeSelector.css';
+
+// Gap between the two circles of a couple, as a fraction of node radius. Wide
+// enough that the bar between them reads as a link rather than a join.
+const COUPLE_GAP_FRACTION = 0.9;
 
 function FamilyTreeSelector({ players, selectedPlayerIds, onSelectionChange }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [translate, setTranslate] = useState({ x: 0, y: 0 });
-  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
-  
+
   const displayNodes = getSetting('display.default_display_nodes', 20);
   const debounceMs = getSetting('search.debounce_ms', 300);
   const nodeRadius = getSetting('tree.node_radius', 20);
-  const colors = getSetting('colors', {});
 
   // These two have been in settings.yaml all along; the tree ignored them and
   // used hardcoded 200x100 with a further 1.5x sibling separation, which left
@@ -23,7 +27,6 @@ function FamilyTreeSelector({ players, selectedPlayerIds, onSelectionChange }) {
   const horizontalSpacing = getSetting('tree.horizontal_spacing', 90);
   const verticalSpacing = getSetting('tree.vertical_spacing', 80);
 
-  // Debounced search
   const debouncedSearch = useMemo(
     () => debounce((term) => setDebouncedSearchTerm(term), debounceMs),
     [debounceMs]
@@ -34,40 +37,33 @@ function FamilyTreeSelector({ players, selectedPlayerIds, onSelectionChange }) {
     return () => debouncedSearch.cancel();
   }, [searchTerm, debouncedSearch]);
 
-  // Build tree data
   const treeData = useMemo(() => {
-    if (!players || players.length === 0) {
-      console.log('No players available');
-      return [];
-    }
-    
-    let idsToShow = new Set();
-    
-    // If no search term, show only recent players
-    if (!debouncedSearchTerm) {
-      const recentPlayers = getRecentPlayers(players, displayNodes);
-      recentPlayers.forEach(p => idsToShow.add(p.id));
-      console.log(`Showing ${recentPlayers.length} recent players out of ${players.length} total`);
-    } else {
-      console.log(`Searching for: ${debouncedSearchTerm}`);
-      // When searching, show all matching players
-      players.forEach(p => idsToShow.add(p.id));
-    }
-    
-    // Build full tree with all players, then filter to show only selected IDs
-    const familyTree = buildFamilyTree(players, debouncedSearchTerm, idsToShow);
-    console.log('Family tree built:', familyTree);
-    
-    const d3Tree = convertToD3TreeFormat(familyTree);
-    console.log('D3 tree data:', d3Tree);
-    
-    return d3Tree;
+    if (!players || players.length === 0) return null;
+
+    // Without a search this is a "recent players" view rather than everyone;
+    // with one, every player is a candidate.
+    const idsToShow = new Set(
+      (debouncedSearchTerm ? players : getRecentPlayers(players, displayNodes))
+        .map((p) => p.id)
+    );
+
+    return convertToD3TreeFormat(
+      buildFamilyTree(players, debouncedSearchTerm, idsToShow)
+    );
   }, [players, debouncedSearchTerm, displayNodes]);
 
-  // Handle node click
-  const handleNodeClick = useCallback((nodeData) => {
-    const playerId = nodeData.data.attributes.id;
-    
+  // A couple occupies two circles, so every node needs room for the widest one
+  // — react-d3-tree gives all nodes the same box.
+  const widestUnion = useMemo(() => {
+    if (!treeData) return 1;
+    const walk = (node) => Math.max(
+      node.attributes?.members?.length || 1,
+      ...(node.children || []).map(walk)
+    );
+    return walk(treeData);
+  }, [treeData]);
+
+  const togglePlayer = useCallback((playerId) => {
     if (selectedPlayerIds.includes(playerId)) {
       onSelectionChange(selectedPlayerIds.filter(id => id !== playerId));
     } else {
@@ -75,116 +71,117 @@ function FamilyTreeSelector({ players, selectedPlayerIds, onSelectionChange }) {
     }
   }, [selectedPlayerIds, onSelectionChange]);
 
-  // Custom node rendering
-  const renderCustomNode = ({ nodeDatum, toggleNode }) => {
-    // Render invisible root but make it transparent
-    const isInvisible = nodeDatum.attributes.isInvisible;
-    
-    if (isInvisible) {
-      return (
-        <g className="invisible-root">
-          <circle r={0} fill="none" />
-        </g>
-      );
+  const renderCustomNode = ({ nodeDatum }) => {
+    const { kind, members = [], isDeclared } = nodeDatum.attributes || {};
+
+    // The wrapper that holds a forest together is structural, not a person.
+    if (kind === 'invisible' || kind === 'empty') {
+      return <g className="invisible-root"><circle r={0} fill="none" /></g>;
     }
-    
-    const isSelected = selectedPlayerIds.includes(nodeDatum.attributes.id);
-    const fillColor = isSelected ? colors.node_selected : colors.node_default;
 
-    // Long aliases used to run straight out of the circle. Fit what we can and
-    // fall back to initials; the full alias stays in the tooltip below.
-    const label = fitNodeLabel(nodeDatum.name, nodeRadius);
-
-    // Baseline sits about a third of the cap height below the centre, so the
-    // text stays optically centred whatever size fitNodeLabel settled on.
-    const baselineY = label.fontSize * 0.35;
+    const spacing = nodeRadius * (2 + COUPLE_GAP_FRACTION);
+    const offsetFor = (index) => (index - (members.length - 1) / 2) * spacing;
 
     return (
-      <g onClick={() => handleNodeClick({ data: nodeDatum })}>
-        {/* Filled circle */}
-        <circle
-          r={nodeRadius}
-          fill={fillColor}
-          stroke={colors.edge_color}
-          strokeWidth="2"
-          style={{ cursor: 'pointer' }}
-        />
-        
-        {/* Text INSIDE the circle */}
-        <text
-          fill="#0a0e27"
-          strokeWidth="0"
-          x="0"
-          y={baselineY}
-          textAnchor="middle"
-          style={{
-            fontFamily: 'Courier New, monospace',
-            fontSize: `${label.fontSize}px`,
-            fontWeight: 'bold',
-            cursor: 'pointer',
-            pointerEvents: 'none'
-          }}
-        >
-          {label.text}
-        </text>
-        
-        {/* Tooltip info on hover */}
-        <title>
-          {nodeDatum.name}
-          {nodeDatum.attributes.firstName && `\n${nodeDatum.attributes.firstName}`}
-          {nodeDatum.attributes.middleName && ` ${nodeDatum.attributes.middleName}`}
-          {nodeDatum.attributes.lastName && ` ${nodeDatum.attributes.lastName}`}
-          {nodeDatum.attributes.age !== null && `\nAge: ${nodeDatum.attributes.age}`}
-        </title>
+      <g>
+        {/* The bar joining a couple. Dashed when the partnership was inferred
+            from a shared child rather than recorded by anyone. */}
+        {members.length > 1 && (
+          <line
+            className={isDeclared ? 'union-bar' : 'union-bar inferred'}
+            x1={offsetFor(0)}
+            x2={offsetFor(members.length - 1)}
+            y1={0}
+            y2={0}
+            stroke={color('--edge-color')}
+          />
+        )}
+
+        {members.map((member, index) => (
+          <PersonCircle
+            key={member.id}
+            member={member}
+            x={offsetFor(index)}
+            radius={nodeRadius}
+            isSelected={selectedPlayerIds.includes(member.id)}
+            onClick={() => togglePlayer(member.id)}
+          />
+        ))}
       </g>
     );
   };
 
-  // Custom path class function to mark links from invisible root
   const pathClassFunc = (linkData) => {
-    if (linkData.source.data.attributes?.isInvisible) {
-      return 'invisible-root-link';
-    }
+    const source = linkData.source.data.attributes || {};
+    const target = linkData.target.data.attributes || {};
+
+    if (source.kind === 'invisible') return 'invisible-root-link';
+    // The link to a duplicate is dashed, so a ghost never looks like a second
+    // person who happens to share a name.
+    if (target.kind === 'ghost') return 'ghost-link';
     return '';
   };
 
-  // Measure container
   useEffect(() => {
     const updateDimensions = () => {
       const container = document.getElementById('tree-container');
       if (container) {
-        setDimensions({
-          width: container.offsetWidth,
-          height: container.offsetHeight
-        });
-        setTranslate({
-          x: container.offsetWidth / 2,
-          y: 50
-        });
+        setTranslate({ x: container.offsetWidth / 2, y: 60 });
       }
     };
-    
+
     updateDimensions();
     window.addEventListener('resize', updateDimensions);
     return () => window.removeEventListener('resize', updateDimensions);
   }, []);
 
-  const selectedPlayers = players.filter(p => selectedPlayerIds.includes(p.id));
+  // In the order they were picked, which is the order they will sit in — and
+  // therefore the order they bid in. This list used to be built by filtering
+  // the roster, so it showed the players sorted one way while the game was
+  // created with them in another.
+  const selectedPlayers = selectedPlayerIds
+    .map((id) => players.find((player) => player.id === id))
+    .filter(Boolean);
+
+  const moveSelected = (from, to) => {
+    onSelectionChange(moveItem(selectedPlayerIds, from, to));
+  };
 
   return (
     <div className="family-tree-selector">
       <div className="selection-panel">
         <h3>SELECTED ({selectedPlayerIds.length})</h3>
+        {/* Seat order, so it is worth showing the number and letting it be
+            changed here rather than only once the game has started. */}
+        {selectedPlayerIds.length > 1 && (
+          <div className="field-hint">Order of play — first to bid at the top.</div>
+        )}
         <div className="selected-list">
-          {selectedPlayers.map(player => (
+          {selectedPlayers.map((player, seat) => (
             <div key={player.id} className="selected-player">
-              <span>☑ {player.alias}</span>
-              <button 
-                onClick={() => onSelectionChange(selectedPlayerIds.filter(id => id !== player.id))}
-                className="remove-btn"
-              >
-                ✕
-              </button>
+              <span>{seat + 1}. {player.alias}</span>
+              <span className="seat-controls">
+                <button
+                  onClick={() => moveSelected(seat, seat - 1)}
+                  disabled={seat === 0}
+                  aria-label={`Move ${player.alias} earlier`}
+                >
+                  ▲
+                </button>
+                <button
+                  onClick={() => moveSelected(seat, seat + 1)}
+                  disabled={seat === selectedPlayers.length - 1}
+                  aria-label={`Move ${player.alias} later`}
+                >
+                  ▼
+                </button>
+                <button
+                  onClick={() => onSelectionChange(selectedPlayerIds.filter(id => id !== player.id))}
+                  className="remove-btn"
+                >
+                  ✕
+                </button>
+              </span>
             </div>
           ))}
         </div>
@@ -211,7 +208,7 @@ function FamilyTreeSelector({ players, selectedPlayerIds, onSelectionChange }) {
         </div>
 
         <div id="tree-container" className="tree-container">
-          {treeData && treeData.name !== undefined ? (
+          {treeData && treeData.attributes?.kind !== 'empty' ? (
             <Tree
               data={treeData}
               translate={translate}
@@ -219,7 +216,7 @@ function FamilyTreeSelector({ players, selectedPlayerIds, onSelectionChange }) {
               pathFunc="step"
               pathClassFunc={pathClassFunc}
               separation={{ siblings: 1, nonSiblings: 1.35 }}
-              nodeSize={{ x: horizontalSpacing, y: verticalSpacing }}
+              nodeSize={{ x: horizontalSpacing * widestUnion, y: verticalSpacing }}
               renderCustomNodeElement={renderCustomNode}
               zoom={0.8}
               enableLegacyTransitions={true}
@@ -235,6 +232,70 @@ function FamilyTreeSelector({ players, selectedPlayerIds, onSelectionChange }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * One person inside a node.
+ *
+ * A ghost is the same player drawn a second time — under their own parents when
+ * the couple they belong to hangs elsewhere. It is outlined rather than filled
+ * so it reads as a cross-reference, and it selects the same player.
+ */
+function PersonCircle({ member, x, radius, isSelected, onClick }) {
+  // The recorded name is passed too: when the alias will not fit, initials of
+  // the real name ("CA") beat anything derivable from the alias alone.
+  const label = fitNodeLabel(member.alias, radius, {
+    nameParts: [member.firstName, member.middleName, member.lastName],
+  });
+
+  // Baseline sits about a third of the cap height below the centre, so the text
+  // stays optically centred whatever size fitNodeLabel settled on.
+  const baselineY = label.fontSize * 0.35;
+
+  const fill = member.isGhost
+    ? 'transparent'
+    : color(isSelected ? '--node-selected' : '--node-default');
+
+  return (
+    <g
+      transform={`translate(${x}, 0)`}
+      className={member.isGhost ? 'person ghost' : 'person'}
+      onClick={onClick}
+    >
+      <circle
+        r={radius}
+        fill={fill}
+        stroke={color(isSelected ? '--node-selected' : '--edge-color')}
+        strokeWidth="2"
+        strokeDasharray={member.isGhost ? '4 3' : undefined}
+      />
+
+      <text
+        x="0"
+        y={baselineY}
+        textAnchor="middle"
+        strokeWidth="0"
+        fill={member.isGhost ? color('--fg') : color('--fg-inverse')}
+        style={{
+          fontFamily: 'Courier New, monospace',
+          fontSize: `${label.fontSize}px`,
+          fontWeight: 'bold',
+          pointerEvents: 'none',
+        }}
+      >
+        {label.text}
+      </text>
+
+      <title>
+        {member.alias}
+        {member.firstName && `\n${member.firstName}`}
+        {member.middleName && ` ${member.middleName}`}
+        {member.lastName && ` ${member.lastName}`}
+        {`\nMatches: ${member.matches}`}
+        {member.isGhost && '\n(also shown elsewhere)'}
+      </title>
+    </g>
   );
 }
 

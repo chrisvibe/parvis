@@ -19,7 +19,7 @@
   "scripts": {
     "start": "WDS_SOCKET_PORT=0 react-scripts start",
     "build": "react-scripts build",
-    "test": "react-scripts test",
+    "test": "TZ=Europe/Oslo react-scripts test",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {

@@ -1,56 +1,54 @@
 import React from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { color, chartLineColor, chartTooltipStyle, chartAxisLabel } from '../utils/theme';
 
 /**
  * ScoreChart - Visualizes cumulative scores over rounds.
- * 
- * Displays a line chart showing each player's score progression.
- * 
+ *
+ * Used by both the live game and the historical game viewer, which each had
+ * their own line chart before, with different colours and different tooltips.
+ *
  * @param {Array} chartData - Chart data with round and player scores
  * @param {Array} gameStats - Player statistics for generating lines
- * @param {Array} colors - Array of colors for lines (optional)
+ * @param {String} title - heading above the chart
+ * @param {Boolean} showLegend - draw the player legend (the live game has the
+ *        matrix directly above it and does not need one)
  */
-function ScoreChart({ chartData, gameStats, colors }) {
-  if (!chartData || chartData.length === 0 || !gameStats || gameStats.length === 0) {
+function ScoreChart({ chartData, gameStats, title = '📊 Score Progress', showLegend = false }) {
+  if (!chartData?.length || !gameStats?.length) {
     return null;
   }
 
-  // Default colors if not provided
-  const defaultColors = ['#00ff00', '#ffff00', '#00ffff', '#ff00ff', '#ff8800'];
-  const lineColors = colors || defaultColors;
-
   return (
     <div className="chart-container">
-      <h3>📊 Score Progress</h3>
+      <h3>{title}</h3>
       <ResponsiveContainer width="100%" height={400}>
         <LineChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#00ff00" opacity={0.2} />
-          <XAxis 
-            dataKey="round" 
-            stroke="#00ff00"
-            label={{ value: 'Round', position: 'insideBottom', offset: -5, fill: '#00ff00' }}
+          <CartesianGrid strokeDasharray="3 3" stroke={color('--fg')} opacity={0.2} />
+          <XAxis
+            dataKey="round"
+            stroke={color('--fg')}
+            label={chartAxisLabel('Round', { position: 'insideBottom', offset: -5 })}
           />
-          <YAxis 
-            stroke="#00ff00"
-            label={{ value: 'Score', angle: -90, position: 'insideLeft', fill: '#00ff00' }}
+          <YAxis
+            stroke={color('--fg')}
+            label={chartAxisLabel('Score', { angle: -90, position: 'insideLeft' })}
           />
-          <Tooltip 
-            contentStyle={{ 
-              backgroundColor: '#0a0e27', 
-              border: '2px solid #00ff00',
-              color: '#00ff00'
-            }}
-          />
-          {gameStats.map((stat, idx) => (
-            <Line
-              key={stat.player_id}
-              type="monotone"
-              dataKey={stat.player_alias}
-              stroke={lineColors[idx % lineColors.length]}
-              strokeWidth={2}
-              dot={{ fill: lineColors[idx % lineColors.length], r: 4 }}
-            />
-          ))}
+          <Tooltip contentStyle={chartTooltipStyle()} />
+          {showLegend && <Legend />}
+          {gameStats.map((stat, index) => {
+            const lineColor = chartLineColor(index, gameStats.length);
+            return (
+              <Line
+                key={stat.player_id}
+                type="monotone"
+                dataKey={stat.player_alias}
+                stroke={lineColor}
+                strokeWidth={2}
+                dot={{ fill: lineColor, r: 4 }}
+              />
+            );
+          })}
         </LineChart>
       </ResponsiveContainer>
     </div>

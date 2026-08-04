@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import HallOfFame from '../components/HallOfFame';
 
 function About() {
   const [content, setContent] = useState('');
@@ -36,8 +37,14 @@ function About() {
 
   return (
     <div className="page">
-      <div className="about-content">
-        {renderContent(content)}
+      {/* Two columns on a wide screen, stacked on a narrow one — the hall of
+          fame reads as a sidebar to the text, not as a separate page. */}
+      <div className="about-layout">
+        <div className="about-content">
+          {renderContent(content)}
+        </div>
+
+        <HallOfFame />
       </div>
     </div>
   );

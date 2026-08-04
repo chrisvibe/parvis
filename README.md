@@ -6,6 +6,8 @@ A retro-styled web application for tracking Parvis betting games with live stati
 
 ### 🎮 Game Play
 - Start new games with multiple players
+- Choose the order of play: reorder the list when setting a game up, and drag
+  the matrix columns (or use the ◀ ▶ arrows) to change it during one
 - Track bets and results round-by-round
 - Live score progression with animated line chart
 - Real-time leaderboard updates
@@ -102,7 +104,12 @@ parvis/
 ### Parvis Betting Game
 
 1. Each round, players make a bet (any positive number)
-2. Players mark their bet as successful or failed
+2. Players mark their bet as successful or failed. A round opens with everyone
+   assumed to have made it, so marking results means double-clicking whoever
+   went down — the shorter list. The consequence is that an unmarked round
+   already counts as won, so the running total mid-round reads "what everyone
+   gets if they all make it". Set `game.default_success: false` in
+   `settings.yaml` to start rounds as failed instead.
 3. Scoring:
    - **Successful bet**: 10 + bet amount
    - **Failed bet**: 0 points
@@ -122,22 +129,71 @@ Round 2:
 Alice wins!
 ```
 
+## Dates
+
+Shown as `DD/MM/YYYY` on a 24-hour clock, everywhere, for everyone. The format
+is fixed in `frontend/src/utils/datetime.js` rather than taken from the
+browser, because a browser-formatted date reads as 08/04/2026 on one phone and
+04/08/2026 on the next and neither says which it is.
+
+That is also why the date fields are `react-datepicker` and not
+`<input type="datetime-local">`: the native control is drawn by the browser in
+the browser's own locale, and nothing in the page — `lang`, CSS, an attribute —
+can change it. Same reason the time is picked from a list rather than with
+`showTimeInput`, which is an `<input type="time">` and brings back AM/PM.
+
+Storage is unaffected by any of this and needs no migration to change how a date
+looks. Instants (`games.date`, `players.last_game_date`) are `DateTime` holding
+naive UTC — see `backend/clock.py`. Days (`players.birthdate`,
+`registration_date`) are `Date`, a calendar day with no zone, which is what a
+birthday is.
+
+The one place that distinction bites is converting between them. A picker hands
+back local midnight, and `toISOString()` on that is the previous day anywhere
+east of Greenwich — Norway included — so a day-valued field goes through
+`toDateOnly()`, which reads the local calendar parts. Reading one back uses
+`parseDate()` for the mirror-image reason: a bare `"1990-05-12"` parses as UTC
+midnight, which is the 11th to anyone west of Greenwich. The frontend tests are
+pinned to `TZ=Europe/Oslo` (see the `test` script) because at UTC+0 neither
+mistake is visible.
+
 ## Database Schema
 
 ### Players
 - `id`: Primary key
 - `alias`: Unique player nickname
+- `email`: Required for new players, nullable for ones registered before it was
 - `first_name`, `middle_name`, `last_name`: Optional full name
 - `birthdate`: Optional date of birth
 - `registration_date`: Auto-generated
 
+### Relationships
+The UI offers three — parent, child, partner — stored in two tables, because
+"X is my child" and "I am X's parent" are one fact.
+
+- `player_parents(player_id, parent_id)`: one row means `player_id` has
+  `parent_id` as a parent. `child_ids` is this table read backwards.
+- `player_partners(player_a_id, player_b_id)`: symmetric, so stored once with
+  the lower id first and a CHECK to enforce it. Writes go through
+  `PlayerService`; the ORM relationships are `viewonly` so nothing can bypass
+  the ordering.
+
 ### Games
 - `id`: Primary key
-- `game_type`: Type of game (default: "standard")
-- `date`: Game creation timestamp
+- `game_type`: `standard` or `tournament`. The winner of the last tournament of
+  a year takes that year's place in the hall of fame.
+- `date`: When the game was played. Defaults to now, settable at creation and
+  editable afterwards — the tournament year is read off it.
 - `total_rounds`: Number of rounds
 - `current_round`: Current round number
 - `is_active`: Whether game is in progress
+
+### Game players
+- `game_id`, `player_id`: who is playing what, together the primary key
+- `seat`: where they sit, counting from zero. This is game state rather than a
+  display preference — the matrix marks round N as belonging to seat
+  N % players, so the seating is what says who bids first. It is set from the
+  order players were picked in, and changed with `PUT /games/{id}/player-order`.
 
 ### Rounds
 - `id`: Primary key
@@ -165,13 +221,27 @@ Alice wins!
 - `POST /games/{id}/finish` - Finish game
 - `GET /games/{id}/rounds` - Get all rounds
 - `POST /games/{id}/rounds` - Add new round
-- `GET /games/{id}/stats` - Game statistics
+- `PUT /games/{id}/metadata` - Correct notes, location, type or date
+- `PUT /games/{id}/player-order` - Reseat the players. The body is
+  `{"player_ids": [...]}` and must list exactly this game's roster, in order;
+  a partial list is refused because the seats it omits would have no home.
+- `GET /games/{id}/stats` - Game statistics, in seat order
+
+### Hall of fame
+- `GET /hall-of-fame` - Yearly tournament winners, all-time records, album link
 
 ## Environment Variables
 
 ### Backend
 - `DATABASE_URL`: PostgreSQL connection string
 - `CORS_ORIGINS`: Allowed frontend origins
+- `HALL_OF_FAME_ALBUM_URL`: Photo album linked from the hall of fame (optional;
+  has a working default)
+- `HALL_OF_FAME_SEED`: JSON list of tournaments played before this app existed,
+  which cannot be computed from the games. Defaults to
+  `backend/hall_of_fame.json`; see `backend/hall_of_fame.example.json`. Seeded
+  years are marked historical and are superseded once a real tournament is
+  recorded for that year.
 
 ### Frontend
 - `REACT_APP_API_URL`: Backend API URL
@@ -180,6 +250,32 @@ Alice wins!
 - `POSTGRES_DB`: Database name
 - `POSTGRES_USER`: Database user
 - `POSTGRES_PASSWORD`: Database password
+
+## Schema changes
+
+The schema is owned by Alembic (`backend/migrations`). The app runs
+`alembic upgrade head` on startup, so a deploy applies its own migrations.
+
+A database created before Alembic existed is adopted automatically the first
+time it boots: `init_db()` sees no `alembic_version` table, creates whatever the
+models declare, runs the two legacy idempotent fix-ups, and stamps the baseline.
+That path runs once. After it, `create_all` never runs again — which is the
+point, since it would otherwise create the very table a pending migration is
+about to create.
+
+```bash
+# After changing a model — writes a revision by diffing models against the DB
+docker compose exec backend alembic revision --autogenerate -m "add x to y"
+
+# Review the generated file, then apply (a restart does this too)
+docker compose exec backend alembic upgrade head
+
+# Where are we
+docker compose exec backend alembic current
+```
+
+Always read the generated revision before applying it. Autogenerate is good at
+tables and columns and bad at renames — it sees a drop and an add.
 
 ## Development
 
@@ -190,6 +286,9 @@ cd backend
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Run the tests
+pytest -q
 
 # Run with hot reload
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
@@ -202,6 +301,9 @@ cd frontend
 
 # Install dependencies
 npm install
+
+# Run the tests (pinned to TZ=Europe/Oslo by the script — see Dates)
+CI=true npm test
 
 # Run development server
 npm start

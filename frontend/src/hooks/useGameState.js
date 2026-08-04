@@ -51,10 +51,9 @@ export function useGameState(location = null) {
    * Load all data (players + active game).
    */
   const loadData = useCallback(async () => {
-    if (loadingRef.current) {
-      console.log('Already loading, skipping...');
-      return;
-    }
+    // A second load while one is in flight would race the first, and the older
+    // response can arrive last and win.
+    if (loadingRef.current) return;
     
     try {
       loadingRef.current = true;

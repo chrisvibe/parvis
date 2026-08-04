@@ -22,6 +22,20 @@ POSTGRES_VERSION=18-alpine
 PARVIS_PASSWORD=
 PARVIS_ADMIN_PASSWORD=
 
+# Hall of fame (both optional)
+#
+# HALL_OF_FAME_ALBUM_URL  the photo album linked from the panel; has a working
+#                         default, so set this only to point somewhere else
+# HALL_OF_FAME_SEED       path to a JSON list of tournaments played before this
+#                         app existed, which cannot be computed from the games.
+#                         Defaults to backend/hall_of_fame.json; see
+#                         backend/hall_of_fame.example.json for the shape.
+#                         Seeded years are marked as historical and are
+#                         superseded automatically once a real tournament is
+#                         recorded for that year.
+HALL_OF_FAME_ALBUM_URL=
+HALL_OF_FAME_SEED=
+
 # Backup Configuration
 # Cron schedule: minute hour day month weekday (default: daily at 3 AM)
 BACKUP_CRON_SCHEDULE=0 3 * * *

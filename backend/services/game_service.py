@@ -7,10 +7,13 @@ Encapsulates game-related business logic, making it easier to:
 - Manage transactions consistently
 """
 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
+
+from clock import naive_utc_now
 
 from database import Game, GamePlayer, Player, Round
 from models import GameCreate, GameStats
@@ -22,6 +25,21 @@ from utils import (
     rounds_in_game
 )
 from constants import DEFAULT_GAME_TYPE
+
+
+def _as_stored(value: Optional[datetime]) -> Optional[datetime]:
+    """
+    Normalise an incoming datetime for a naive column.
+
+    A browser sends an offset; `games.date` has no timezone, so Postgres would
+    drop it and the value would read back shifted. Convert to UTC first, then
+    strip the offset, so the stored instant is the one that was meant.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 class GameService:
@@ -46,23 +64,30 @@ class GameService:
             game_type=game_data.game_type or DEFAULT_GAME_TYPE,
             notes=game_data.notes,
             location=game_data.location,
-            date=datetime.utcnow()
+            # Now unless the caller says otherwise. A game recorded the morning
+            # after should count for the night it was played, and the
+            # tournament year is read off this field.
+            date=_as_stored(game_data.date) or naive_utc_now(),
         )
         self.db.add(game)
         self.db.commit()
         self.db.refresh(game)
         
-        # Add players and update their last_game_date
-        for player_id in game_data.player_ids:
-            self._add_player_to_game(game.id, player_id, game.date)
-        
+        # Add players and update their last_game_date. The order they were
+        # given in is the seating order — the caller picked them in some order,
+        # and guessing a different one would be worse than honouring it.
+        for seat, player_id in enumerate(game_data.player_ids):
+            self._add_player_to_game(game.id, player_id, game.date, seat)
+
         self.db.commit()
         self.db.refresh(game)
         return game
-    
-    def _add_player_to_game(self, game_id: int, player_id: int, game_date: datetime) -> None:
+
+    def _add_player_to_game(
+        self, game_id: int, player_id: int, game_date: datetime, seat: int
+    ) -> None:
         """Helper to add a player to a game and update their last_game_date."""
-        game_player = GamePlayer(game_id=game_id, player_id=player_id)
+        game_player = GamePlayer(game_id=game_id, player_id=player_id, seat=seat)
         self.db.add(game_player)
         
         # Update player's last_game_date
@@ -141,26 +166,43 @@ class GameService:
         self,
         game_id: int,
         notes: Optional[str] = None,
-        location: Optional[str] = None
+        location: Optional[str] = None,
+        game_type: Optional[str] = None,
+        date: Optional[datetime] = None,
     ) -> Game:
         """
-        Update game metadata (notes and location).
-        
+        Update game metadata.
+
+        Each argument is left alone when None, so a caller can change one field
+        without having to resend the rest.
+
+        game_type and date are editable because both are things people get
+        wrong at the time and notice later: a game entered as standard turns
+        out to have been the tournament, or was played last night rather than
+        this morning. The tournament year is read off the date, so being able
+        to correct it is what keeps the hall of fame right.
+
         Args:
             game_id: ID of the game to update
             notes: New notes (or None to keep current)
             location: New location (or None to keep current)
-            
+            game_type: New game type (or None to keep current)
+            date: New date (or None to keep current)
+
         Returns:
             Updated Game instance
         """
         game = get_game_or_404(game_id, self.db)
-        
+
         if notes is not None:
             game.notes = notes if notes else None
         if location is not None:
             game.location = location if location else None
-        
+        if game_type:
+            game.game_type = game_type
+        if date is not None:
+            game.date = _as_stored(date)
+
         self.db.commit()
         self.db.refresh(game)
         return game
@@ -232,7 +274,45 @@ class GameService:
         
         self.db.commit()
         return {"current_round": game.current_round}
-    
+
+    def set_player_order(self, game_id: int, player_ids: List[int]) -> List[int]:
+        """
+        Reseat everyone in a game.
+
+        Args:
+            game_id: ID of the game
+            player_ids: the game's players, in the order they should sit
+
+        Returns:
+            The seating that was stored, in seat order
+
+        Raises:
+            HTTPException: 400 if the list is not exactly this game's roster
+        """
+        get_game_or_404(game_id, self.db)
+
+        seated = self.db.query(GamePlayer).filter(GamePlayer.game_id == game_id).all()
+        by_player = {gp.player_id: gp for gp in seated}
+
+        # A permutation of the roster or nothing. A partial list has no
+        # unambiguous reading — the seats it omits could go anywhere — and a
+        # list naming an outsider is asking to seat someone who is not playing.
+        # Both are caller mistakes worth reporting rather than interpreting.
+        if len(player_ids) != len(set(player_ids)):
+            raise HTTPException(status_code=400, detail="A player cannot sit in two seats.")
+
+        if set(player_ids) != set(by_player):
+            raise HTTPException(
+                status_code=400,
+                detail="The seating must list exactly the players in this game.",
+            )
+
+        for seat, player_id in enumerate(player_ids):
+            by_player[player_id].seat = seat
+
+        self.db.commit()
+        return list(player_ids)
+
     def get_game_stats(self, game_id: int) -> List[GameStats]:
         """
         Get statistics for all players in a game.
@@ -257,8 +337,11 @@ class GameService:
         for r in rounds_in_game(self.db, game_id).all():
             rounds_by_player.setdefault(r.player_id, []).append(r)
 
+        # By seat, always. This list is what the matrix draws its columns from,
+        # and the column index decides whose round it is.
         game_players = self.db.query(GamePlayer)\
-            .filter(GamePlayer.game_id == game_id).all()
+            .filter(GamePlayer.game_id == game_id)\
+            .order_by(GamePlayer.seat, GamePlayer.player_id).all()
 
         result = []
         for gp in game_players:
@@ -273,6 +356,7 @@ class GameService:
                 game_id=game_id,
                 player_id=player.id,
                 player_alias=player.alias,
+                seat=gp.seat,
                 total_score=totals.total_score,
                 rounds_played=totals.rounds_played,
                 successful_bets=totals.successful_bets,

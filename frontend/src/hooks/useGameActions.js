@@ -1,5 +1,7 @@
 import { useCallback } from 'react';
 import { gamesApi, runDestructive } from '../api';
+import { fromLocalInputValue } from '../utils/datetime';
+import { defaultSuccess } from '../utils/gameRules';
 
 /**
  * Custom hook for game actions (create, finish, cancel, adjust, etc.).
@@ -8,21 +10,27 @@ import { gamesApi, runDestructive } from '../api';
  * @param {Function} loadGameData - Function to reload game data
  * @param {Function} clearGame - Function to clear game state
  * @param {Function} navigate - React Router navigate function
+ * @param {Function} setGameStats - Writes the player list directly. Only
+ *        reorderPlayers uses it, and only so a dragged column moves under the
+ *        cursor instead of after a round trip.
  * @returns {Object} Game action functions
  */
-export function useGameActions(activeGame, loadGameData, clearGame, navigate) {
-  
+export function useGameActions(activeGame, loadGameData, clearGame, navigate, setGameStats) {
+
   /**
    * Create a new game with selected players.
    */
   const createGame = useCallback(async (gameData) => {
     try {
       const res = await gamesApi.create(gameData);
-      
-      // Initialize Round 1 with bet=0 for all players
+
+      // Open round 1 for everyone. The starting success flag is a setting
+      // because it decides which way round MARK RESULTS is worked: assuming
+      // success means clicking the players who went down, which is the shorter
+      // list.
       await Promise.all(
         gameData.player_ids.map(playerId =>
-          gamesApi.upsertRound(res.data.id, 1, playerId, 0, false)
+          gamesApi.upsertRound(res.data.id, 1, playerId, 0, defaultSuccess())
         )
       );
       
@@ -160,27 +168,57 @@ export function useGameActions(activeGame, loadGameData, clearGame, navigate) {
   }, [activeGame, loadGameData]);
 
   /**
-   * Edit game metadata (notes, location).
+   * Save edited game metadata (type, date, notes, location).
+   *
+   * The form does the asking; this only sends it. The date arrives as the
+   * browser's local wall-clock string and goes out as an ISO instant.
    */
-  const editMetadata = useCallback(async () => {
+  const editMetadata = useCallback(async (values) => {
     if (!activeGame) return;
-    
-    const newNotes = prompt('Game Notes:', activeGame.notes || '');
-    const newLocation = prompt('Game Location:', activeGame.location || '');
-    
-    if (newNotes === null && newLocation === null) return; // User cancelled
-    
+
     try {
       await gamesApi.updateMetadata(activeGame.id, {
-        notes: newNotes === null ? activeGame.notes : newNotes,
-        location: newLocation === null ? activeGame.location : newLocation
+        notes: values.notes,
+        location: values.location,
+        game_type: values.game_type,
+        date: fromLocalInputValue(values.date),
       });
       await loadGameData(activeGame.id);
     } catch (error) {
       console.error('Error updating metadata:', error);
+      alert('Error saving game details. Please try again.');
       throw error;
     }
   }, [activeGame, loadGameData]);
+
+  /**
+   * Reseat the players.
+   *
+   * Applied locally first. A column has to move the instant it is dropped —
+   * waiting for the server would make a drag feel like it had failed — and the
+   * new order is a pure rearrangement of rows already on screen, so showing it
+   * before it is stored claims nothing that isn't true.
+   *
+   * If the write does fail, the server's own answer is reloaded rather than an
+   * order remembered from before the drag: whatever is stored is the truth
+   * about whose round it is, and that is what the screen should show.
+   */
+  const reorderPlayers = useCallback(async (playerIds) => {
+    if (!activeGame) return;
+
+    setGameStats((current) => {
+      const byId = new Map(current.map((stat) => [stat.player_id, stat]));
+      return playerIds.map((id) => byId.get(id)).filter(Boolean);
+    });
+
+    try {
+      await gamesApi.setPlayerOrder(activeGame.id, playerIds);
+    } catch (error) {
+      console.error('Error reordering players:', error);
+      alert('Could not save the new player order.');
+      await loadGameData(activeGame.id);
+    }
+  }, [activeGame, loadGameData, setGameStats]);
 
   return {
     createGame,
@@ -190,5 +228,6 @@ export function useGameActions(activeGame, loadGameData, clearGame, navigate) {
     deleteGame,
     adjustRounds,
     editMetadata,
+    reorderPlayers,
   };
 }

@@ -4,11 +4,12 @@ Player service layer for Parvis.
 Handles player creation, updates, and statistics.
 """
 
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
-from typing import List, Dict
+from typing import Dict, Iterable, List, Optional, Set
 from fastapi import HTTPException
 
-from database import GamePlayer, Player, Round
+from database import Game, GamePlayer, Player, Round, player_partners
 from models import PlayerCreate, PlayerStats
 from utils import (
     get_player_or_404,
@@ -18,6 +19,11 @@ from utils import (
     games_finished,
     lifetime_rounds
 )
+
+
+# Fields on PlayerCreate that are relationships rather than columns, and so
+# must be kept away from the Player constructor and from setattr.
+RELATIONSHIP_FIELDS = {'parent_ids', 'child_ids', 'partner_ids'}
 
 
 class PlayerService:
@@ -30,13 +36,31 @@ class PlayerService:
         """
         Get all players.
 
-        Parent relationships come along with them: the response model reads
-        `parent_ids` straight off the ORM object.
+        Relationships come along with them: the response model reads
+        `parent_ids`, `child_ids` and `partner_ids` straight off the ORM object.
+
+        `games_played` is attached here rather than being a model property
+        because it needs a session. One grouped query covers the whole roster —
+        the alternative, a stats call per player, is what the family tree would
+        otherwise have to do to label a node.
 
         Returns:
             List of Player instances
         """
-        return self.db.query(Player).all()
+        players = self.db.query(Player).all()
+
+        counts = dict(
+            self.db.query(GamePlayer.player_id, func.count(GamePlayer.game_id))
+            .join(Game, GamePlayer.game_id == Game.id)
+            .filter(Game.is_valid.is_(True))
+            .group_by(GamePlayer.player_id)
+            .all()
+        )
+
+        for player in players:
+            player.games_played = counts.get(player.id, 0)
+
+        return players
     
     def get_player(self, player_id: int) -> Player:
         """
@@ -68,20 +92,15 @@ class PlayerService:
         if existing:
             raise HTTPException(status_code=400, detail="Alias already exists")
         
-        # Create player without parents first
-        player_dict = player_data.dict(exclude={'parent_ids'})
+        # Create the player before wiring anything up: the relationships all
+        # need an id to point at.
+        player_dict = player_data.model_dump(exclude=RELATIONSHIP_FIELDS)
         db_player = Player(**player_dict)
         self.db.add(db_player)
         self.db.flush()  # Get the ID without committing
-        
-        # Add parent relationships
-        if player_data.parent_ids:
-            for parent_id in player_data.parent_ids:
-                parent = self.db.query(Player)\
-                    .filter(Player.id == parent_id).first()
-                if parent:
-                    db_player.parents.append(parent)
-        
+
+        self._apply_relationships(db_player, player_data)
+
         self.db.commit()
         self.db.refresh(db_player)
         return db_player
@@ -109,46 +128,188 @@ class PlayerService:
                 raise HTTPException(status_code=400, detail="Alias already exists")
         
         # Update basic fields
-        for key, value in player_data.dict(exclude={'parent_ids'}).items():
+        for key, value in player_data.model_dump(exclude=RELATIONSHIP_FIELDS).items():
             setattr(db_player, key, value)
-        
-        # Update parent relationships
-        self._reject_parent_cycles(player_id, player_data.parent_ids)
-        db_player.parents.clear()
-        if player_data.parent_ids:
-            for parent_id in player_data.parent_ids:
-                parent = self.db.query(Player)\
-                    .filter(Player.id == parent_id).first()
-                if parent:
-                    db_player.parents.append(parent)
-        
+
+        self._apply_relationships(db_player, player_data)
+
         self.db.commit()
         self.db.refresh(db_player)
         return db_player
-    
-    def _reject_parent_cycles(self, player_id: int, parent_ids: List[int]) -> None:
+
+    # ------------------------------------------------------------------
+    # Relationships
+    # ------------------------------------------------------------------
+
+    def _apply_relationships(self, db_player: Player, player_data: PlayerCreate) -> None:
         """
-        Refuse a parent assignment that would make the family tree circular.
+        Replace this player's relationships with the ones given.
 
-        The API used to accept A as a parent of B *and* B as a parent of A. The
-        tree renderer then recursed until the tab died — a white page with no
-        way back, from data the API had happily stored. The frontend only ever
-        blocked the one-step case (a player being their own parent), which
-        leaves every longer loop open.
+        Each of the three lists is the complete set for that relationship, not
+        an addition, so removing someone means sending the list without them.
+        A list that was not sent at all is left as it is — see PlayerCreate.
 
-        A proposed parent is illegal when the player is already somewhere above
-        it, so walk up from each candidate and see whether we arrive back at the
-        player.
+        Validation then runs against the state the request would produce, not
+        against the fields it happened to mention: a contradiction between a new
+        parent and an existing partner is still a contradiction.
+
+        Everything is validated before anything is written: a request that is
+        half legal must not leave the tree half rewired.
+        """
+        parent_ids = self._resolve(player_data.parent_ids, db_player.parent_ids)
+        child_ids = self._resolve(player_data.child_ids, db_player.child_ids)
+        partner_ids = self._resolve(player_data.partner_ids, db_player.partner_ids)
+
+        self._reject_impossible_relationships(
+            db_player.id, parent_ids, child_ids, partner_ids
+        )
+
+        self._set_parents(db_player, parent_ids)
+        self._set_children(db_player, child_ids)
+        self._set_partners(db_player, partner_ids)
+
+    def _resolve(self, given: Optional[Iterable[int]], current: List[int]) -> List[int]:
+        """What this relationship will be: the list given, or what it already is."""
+        return list(current) if given is None else self._known_ids(given)
+
+    def _known_ids(self, ids: Iterable[int]) -> List[int]:
+        """
+        The given ids that actually exist, de-duplicated, order preserved.
+
+        Unknown ids are dropped rather than refused, which is what this has
+        always done — a stale id from a page that was open while someone else
+        deleted a player should not fail the whole save.
+        """
+        wanted = list(dict.fromkeys(ids or []))
+        if not wanted:
+            return []
+
+        existing = {
+            row.id for row in
+            self.db.query(Player.id).filter(Player.id.in_(wanted)).all()
+        }
+        return [i for i in wanted if i in existing]
+
+    def _set_parents(self, db_player: Player, parent_ids: List[int]) -> None:
+        db_player.parents.clear()
+        for parent_id in parent_ids:
+            db_player.parents.append(
+                self.db.query(Player).filter(Player.id == parent_id).first()
+            )
+
+    def _set_children(self, db_player: Player, child_ids: List[int]) -> None:
+        """
+        Set who has this player as a parent.
+
+        The same table as _set_parents, written from the other side: "X is my
+        child" and "I am X's parent" are one fact, so there is one place it
+        lives.
+        """
+        db_player.children.clear()
+        for child_id in child_ids:
+            db_player.children.append(
+                self.db.query(Player).filter(Player.id == child_id).first()
+            )
+
+    def _set_partners(self, db_player: Player, partner_ids: List[int]) -> None:
+        """
+        Set this player's partners.
+
+        Written as plain inserts rather than through a relationship because the
+        pair is stored canonically (lower id first) and only one row exists per
+        couple — an ORM collection on one side would happily write the mirror
+        row too.
+        """
+        self.db.execute(
+            player_partners.delete().where(
+                or_(
+                    player_partners.c.player_a_id == db_player.id,
+                    player_partners.c.player_b_id == db_player.id,
+                )
+            )
+        )
+
+        for partner_id in partner_ids:
+            low, high = sorted((db_player.id, partner_id))
+            self.db.execute(
+                player_partners.insert().values(player_a_id=low, player_b_id=high)
+            )
+
+    def _reject_impossible_relationships(
+        self,
+        player_id: int,
+        parent_ids: List[int],
+        child_ids: List[int],
+        partner_ids: List[int],
+    ) -> None:
+        """
+        Refuse relationships that cannot be true, before any of them are stored.
+
+        Three kinds of nonsense:
+
+        1. A player related to themselves.
+        2. The same person as both parent and child, or a partner who is also a
+           parent or child. These are contradictions rather than unusual
+           families, and storing one gives the tree two incompatible places to
+           draw the same person.
+        3. A cycle. The API used to accept A as a parent of B *and* B as a
+           parent of A; the tree renderer then recursed until the tab died — a
+           white page with no way back, from data the API had happily stored.
+           The frontend only ever blocked the one-step case.
+
+        Raises:
+            HTTPException: 400, naming which rule was broken
+        """
+        for label, ids in (
+            ("parent", parent_ids), ("child", child_ids), ("partner", partner_ids)
+        ):
+            if player_id in ids:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"A player cannot be their own {label}.",
+                )
+
+        both = set(parent_ids) & set(child_ids)
+        if both:
+            raise HTTPException(
+                status_code=400,
+                detail="The same player cannot be both a parent and a child.",
+            )
+
+        blood = set(parent_ids) | set(child_ids)
+        if set(partner_ids) & blood:
+            raise HTTPException(
+                status_code=400,
+                detail="A partner cannot also be a parent or a child.",
+            )
+
+        self._reject_parent_cycles(player_id, parent_ids, child_ids)
+
+    def _reject_parent_cycles(
+        self, player_id: int, parent_ids: List[int], child_ids: List[int]
+    ) -> None:
+        """
+        Refuse an assignment that would make the family tree circular.
+
+        Every edge points from a child up to a parent, so a loop through this
+        player is exactly: walk up from one of the proposed parents and arrive
+        back at the player. Nothing else can close a ring, because this request
+        only changes edges that touch this player.
+
+        The walk uses the *proposed* edges where they differ from what is
+        stored, so rewiring a parent and a child in one request is judged on
+        what the tree would become, not on what it currently is. Judging it on
+        the stored edges would refuse legal rearrangements.
 
         Raises:
             HTTPException: 400 if the assignment would close a loop
         """
-        pending = list(parent_ids or [])
-        seen = set()
+        pending = list(parent_ids)
+        seen: Set[int] = set()
 
         while pending:
-            candidate = pending.pop()
-            if candidate == player_id:
+            node_id = pending.pop()
+            if node_id == player_id:
                 raise HTTPException(
                     status_code=400,
                     detail=(
@@ -156,13 +317,32 @@ class PlayerService:
                         "is already an ancestor of one of these parents."
                     ),
                 )
-            if candidate in seen:
+            if node_id in seen:
                 continue
-            seen.add(candidate)
+            seen.add(node_id)
 
-            parent = self.db.query(Player).filter(Player.id == candidate).first()
-            if parent:
-                pending.extend(p.id for p in parent.parents)
+            pending.extend(
+                self._effective_parents(node_id, player_id, child_ids)
+            )
+
+    def _effective_parents(
+        self, node_id: int, player_id: int, child_ids: List[int]
+    ) -> Set[int]:
+        """
+        Who `node_id`'s parents would be once this request is applied.
+
+        Only edges into `player_id` can differ from what is stored: the request
+        replaces the whole set of this player's children, so a stored child not
+        in the new list loses that edge, and a new one gains it.
+        """
+        node = self.db.query(Player).filter(Player.id == node_id).first()
+        parents = {p.id for p in node.parents} if node else set()
+
+        parents.discard(player_id)
+        if node_id in child_ids:
+            parents.add(player_id)
+
+        return parents
 
     def delete_player(self, player_id: int) -> None:
         """
@@ -202,6 +382,18 @@ class PlayerService:
                 ),
             )
 
+        # The partner rows are viewonly to the ORM, so nothing removes them on
+        # delete and the foreign key stops the delete dead. Parent and child
+        # rows are managed relationships and go on their own.
+        self.db.execute(
+            player_partners.delete().where(
+                or_(
+                    player_partners.c.player_a_id == player_id,
+                    player_partners.c.player_b_id == player_id,
+                )
+            )
+        )
+
         self.db.delete(player)
         self.db.commit()
     
@@ -221,7 +413,8 @@ class PlayerService:
             "id": player.id,
             "alias": player.alias,
             "parent_ids": player.parent_ids,
-            "child_ids": [c.id for c in player.children]
+            "child_ids": player.child_ids,
+            "partner_ids": player.partner_ids,
         }
     
     def get_player_stats(self, player_id: int) -> PlayerStats:

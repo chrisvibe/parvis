@@ -1,21 +1,37 @@
+from contextlib import asynccontextmanager
+from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 import os
 
 # Local imports
 import models as schemas
 from database import get_db, init_db, Game
-from services import GameService, PlayerService, RoundService
+from services import GameService, HallOfFameService, PlayerService, RoundService
 from auth import (
     ADMIN_PASSWORD_HEADER,
     PASSWORD_HEADER,
     check_request,
 )
 
-app = FastAPI(title="Parvis API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Startup and shutdown.
+
+    A lifespan handler rather than @app.on_event, which is deprecated and warns
+    on every boot. Nothing needs doing on the way down, so the half after the
+    yield is empty on purpose.
+    """
+    init_db()
+    yield
+
+
+app = FastAPI(title="Parvis API", lifespan=lifespan)
 
 # CORS
 #
@@ -34,11 +50,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-@app.on_event("startup")
-def startup():
-    init_db()
-
 
 @app.middleware("http")
 async def password_gate(request: Request, call_next):
@@ -179,15 +190,29 @@ def reactivate_game(game_id: int, db: Session = Depends(get_db)):
 
 @app.put("/games/{game_id}/metadata")
 def update_game_metadata(
-    game_id: int, 
+    game_id: int,
     notes: str = Query(None),
     location: str = Query(None),
+    game_type: str = Query(None),
+    date: Optional[datetime] = Query(None),
     db: Session = Depends(get_db)
 ):
-    """Update game notes and location."""
+    """Update game notes, location, type and date."""
     service = GameService(db)
-    game = service.update_metadata(game_id, notes, location)
+    game = service.update_metadata(game_id, notes, location, game_type, date)
     return {"message": "Game metadata updated", "game": game}
+
+
+@app.put("/games/{game_id}/player-order")
+def set_player_order(
+    game_id: int,
+    order: schemas.PlayerOrder,
+    db: Session = Depends(get_db)
+):
+    """Reseat a game's players. The body must list exactly this game's roster."""
+    service = GameService(db)
+    player_ids = service.set_player_order(game_id, order.player_ids)
+    return {"message": "Player order updated", "player_ids": player_ids}
 
 
 @app.post("/games/{game_id}/adjust-rounds")
@@ -264,6 +289,13 @@ def get_player_bet_distribution(player_id: int, db: Session = Depends(get_db)):
     """Get histogram data of player's bets."""
     service = PlayerService(db)
     return service.get_bet_distribution(player_id)
+
+
+@app.get("/hall-of-fame", response_model=schemas.HallOfFame)
+def get_hall_of_fame(db: Session = Depends(get_db)):
+    """Yearly tournament winners and the all-time records."""
+    service = HallOfFameService(db)
+    return service.get_hall_of_fame()
 
 
 @app.get("/health")

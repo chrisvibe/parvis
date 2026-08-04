@@ -77,8 +77,31 @@ so it can be picked up cold.
       only ever blocked the one-step case). `convertToD3TreeFormat` and
       `filterTree` each carry the ids on the current path and stop at a repeat,
       marking it `isLoop`, so a database that already contains one still
-      renders. Still open, deliberately: a child with two parents renders under
-      both, because a tree cannot draw a DAG.
+      renders. The remaining half — a child with two parents drawn under both —
+      is fixed below.
+
+- [x] **A child with two parents was drawn twice.** *(fixed 2026-08-04)* A tree
+      gives every node one parent; a family gives a child two. The old renderer
+      drew the child once under each, the same person in two places with nothing
+      to say it was the same person.
+
+      The unit of layout is now a **union** — the set of people who are parents
+      together — rather than a person. The layout-parent of a person is the
+      union of their parents, and every person has exactly one of those, so the
+      graph is a tree by construction rather than by hoping the data stays
+      simple. Unions come from declared partnerships and from shared
+      parenthood, the latter drawn with a dashed bar so the tree does not assert
+      a relationship nobody entered — which is what makes the existing data
+      render correctly before a single partnership has been typed in.
+
+      One case genuinely cannot be drawn: a couple hangs in one place, but both
+      halves have parents, and remarriage puts a person in two unions. The
+      appearance that is not chosen is a dashed **ghost** clicking through to
+      the same player. Every genealogy tool makes this trade.
+
+      A ring in stored data is promoted to a root rather than dropped, so one
+      bad pair of edges cannot blank the whole page. `utils/familyTree.js`,
+      `components/FamilyTreeSelector.jsx`, 19 tests.
 
 - [x] **CORS wildcard with credentials.** *(fixed 2026-08-03)* An "*"
       origin together with `allow_credentials=True` is invalid per the CORS
@@ -91,41 +114,56 @@ so it can be picked up cold.
 
 ## Cleanups
 
-- [ ] **Deprecations:** `@app.on_event("startup")` (use a lifespan handler) and
-      `datetime.utcnow()` (naive, deprecated in 3.12).
+- [x] **Deprecations.** *(fixed 2026-08-04)* `@app.on_event("startup")` is now a
+      lifespan handler. `datetime.utcnow()` is gone: `backend/clock.py` has
+      `now()` (aware) and `naive_utc_now()` for the columns that are still
+      `DateTime` without a timezone, so the choice is made once and named.
+      Pydantic's deprecated `.dict()` went at the same time.
 
-- [ ] **Duplicated chart maths.** `hooks/useChartData.js` and `Stats.jsx`'s
-      `selectGame` build the same cumulative-score array with the same loop.
+- [x] **Duplicated chart maths.** *(fixed 2026-08-04)* One
+      `utils/chartData.js`, used by `useChartData` and by the historical viewer.
 
-- [ ] **Duplicated multi-select UI.** The "filter box + dropdown + chip list"
-      block is copy-pasted between `Players.jsx` (parent selection) and
-      `Stats.jsx` (player selection), inline styles and all. One shared
-      component removes both copies.
+- [x] **Duplicated multi-select UI.** *(fixed 2026-08-04)* One
+      `components/MultiSelect.jsx`. `Players.jsx` wraps it in
+      `RelationshipPicker`, which adds the parent/child/partner choice.
 
-- [ ] **`Stats.jsx` is 717 lines** doing selection, aggregation, game browsing,
-      debounced search, chart building and three tables. `GamePlay.jsx` shows
-      the pattern to follow: hooks plus presentational components.
+- [x] **`Stats.jsx` is 717 lines.** *(fixed 2026-08-04)* Now 63: two hooks
+      (`usePlayerStats`, `useGameHistory`) and two components
+      (`PlayerStatsPanel`, `GameHistoryViewer`).
 
-- [ ] **Inline styles fight `index.css`.** There is a real design system in the
-      stylesheet (`.card`, `.stat-box`, `.button`), yet `#00ff00` and `#0a0e27`
-      are hardcoded inline dozens of times. `settings.yaml` even has a `colors`
-      block nothing consumes.
+- [x] **Inline styles fight `index.css`.** *(fixed 2026-08-04)* The palette is
+      CSS custom properties installed by `utils/theme.js` before first paint;
+      `settings.yaml`'s `colors` and `matrix` blocks feed it, so they finally
+      do something. JavaScript that genuinely needs a colour (recharts takes
+      styling as props) asks `color('--fg')` rather than repeating a hex.
 
-- [ ] **Debug logging left in** `Stats.jsx` and `hooks/useGameState.js` — every
-      game payload is dumped to the browser console.
+- [x] **Debug logging left in.** *(fixed 2026-08-04)* Gone from `GameMatrix`,
+      `useGameState` and the old `Stats.jsx`. `console.error` in a catch stays —
+      that is a report, not a trace.
 
-- [ ] **`settings.js` race.** `getSetting` is synchronous but `loadSettings` is
-      async and nothing awaits it at startup, so early renders silently get
-      defaults. Defaults are also duplicated between `getDefaultSettings()` and
-      `public/settings.yaml`.
+- [x] **`settings.js` race.** *(fixed 2026-08-04)* Settings are awaited before
+      the app renders, and the defaults live in one place.
 
-- [ ] **No tests for services or endpoints.** Only `test_utils.py` exists
-      (scoring, validators, player input, password gate). The service layer is
-      shaped well for `TestClient` tests that do not exist yet.
+- [x] **No tests for services or endpoints.** *(added 2026-08-04)*
+      `conftest.py` (in-memory SQLite on the real schema, plus a `TestClient`
+      with `get_db` overridden), `test_relationships.py`, `test_hall_of_fame.py`
+      and `test_api.py`. Frontend: `familyTree`, `datetime`, `chartData`,
+      `playerStats` and `theme`.
 
-- [ ] **No migration tool.** `create_all()` never adds columns, which is why
-      `database.py` carries a hand-rolled idempotent `_add_missing_columns()`.
-      One or two more schema changes and Alembic starts paying for itself.
+      **Unrun.** The container this was written in has no `python3` and no
+      `frontend/node_modules`, so neither suite has been executed. First job on
+      a machine that can: `docker compose exec backend pytest -q` and
+      `CI=true npm test`.
+
+- [x] **No migration tool.** *(added 2026-08-04)* Alembic owns the schema:
+      `backend/alembic.ini`, `backend/migrations/`, baseline `0001_baseline`.
+      `init_db()` runs `alembic upgrade head` on startup and adopts a
+      pre-Alembic database once — create_all, the two legacy fix-ups, then
+      stamp — after which `create_all` never runs again. See the README's
+      "Schema changes".
+
+      **Verify against a restored dump before this reaches the live database.**
+      The adoption path has not been executed anywhere.
 
 ## Follow-ups from recent changes
 
@@ -143,10 +181,57 @@ so it can be picked up cold.
 
 ## Ideas
 
-- [ ] Add a hall of fame.
+- [x] **Add a hall of fame.** *(added 2026-08-04)* A panel beside ABOUT.
+      Yearly tournament winners at the top, ten years visible and the rest on
+      scroll; then the records; then the album link.
+
+      Tournaments needed a concept to exist first: `game_type` is now
+      `standard` or `tournament`, chosen at creation, with a date that defaults
+      to now and is editable afterwards — the tournament year is read off it,
+      so a game entered the morning after still counts for the night it was
+      played. The last tournament of a year decides that year, which is how a
+      replayed final should read. Years from before the app existed cannot be
+      computed from anything, so they come from a JSON seed file and are marked
+      historical; a real result for that year supersedes the seed
+      automatically.
+
+      Records shipped: highest successful bet, highest and lowest score in a
+      game, most matches, best win rate (floor of 3 games), longest streak,
+      boldest player by average bet (floor of 10 rounds), and the wooden spoon.
+      Deliberately a small fixed list — adding one is a few lines in
+      `hall_of_fame_service.py` and nothing anywhere else. Expect to change it
+      once people have opinions.
+
+- [x] **Add historical pictures to immich, and link the immich albums from
+      here.** *(linked 2026-08-04)* The album is linked from the hall of fame;
+      `HALL_OF_FAME_ALBUM_URL` moves it without a deploy. Filling the album is
+      not a code task.
+
+- [x] **Choose the order of play.** *(added 2026-08-04)* Drag the matrix
+      columns, or use the ◀ ▶ arrows on each header; the setup screen orders
+      the selection with ▲ ▼ before the game starts.
+
+      This turned out not to be a display preference. The matrix marks round N
+      as belonging to column N % players — that highlight is who bids first —
+      so the order is game state and belongs in the database. It was not stored
+      at all: `game_players` had no ordering column, so the columns appeared in
+      whatever order Postgres returned and nobody had ever chosen it. There is
+      now a `seat`, set from the order players were picked in.
+
+      Arrows as well as dragging because HTML5 drag events do not fire on a
+      touchscreen at all, and this gets used on phones at the table.
+
+      Note for whoever changes this next: the rotation is derived from the
+      column index rather than stored per round, so reseating mid-game also
+      moves the highlight on rounds already played. Scores are recorded per
+      player and are unaffected. Storing a first-bidder per round would fix the
+      cosmetic part; nobody has asked.
+
 - [ ] Do the final standings need a rounds column?
-- [ ] Add historical pictures to immich, and link the immich albums from here.
 - [ ] Improve the visual theme.
+- [ ] **Decide what else belongs in the hall of fame.** The record list is a
+      starting point, chosen to have something to react to. Cheapest possible
+      change; wait for suggestions.
 
 ## Testing
 
@@ -165,3 +250,11 @@ so it can be picked up cold.
   unsure which mode you are in.
 - **New environment variables need `docker compose up -d backend`**, not
   `restart` — a reload does not pick them up.
+- **New Python dependencies need a rebuild.** `requirements.txt` is installed at
+  image build time, so a bind-mounted source change is not enough:
+  `docker compose up -d --build backend`. The 2026-08-04 work added `alembic`
+  and `httpx`, so that deploy is a rebuild, not a reload.
+- **The first boot after that deploy migrates the database.** It creates
+  `player_partners`, stamps `0001_baseline`, and from then on `alembic upgrade
+  head` is what changes the schema. Take a backup first and watch the backend
+  log — this path has never been executed anywhere.

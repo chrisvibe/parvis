@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useGameState, useGameActions, useChartData } from '../hooks';
 import { getSetting } from '../utils/settings';
+import { toLocalInputValue, fromLocalInputValue } from '../utils/datetime';
 import GameSetup from '../components/GameSetup';
 import ActiveGame from '../components/ActiveGame';
 
@@ -24,6 +25,7 @@ function GamePlay() {
     loading,
     loadGameData,
     clearGame,
+    setGameStats,
   } = useGameState(location);
 
   const {
@@ -34,13 +36,16 @@ function GamePlay() {
     deleteGame,
     adjustRounds,
     editMetadata,
-  } = useGameActions(activeGame, loadGameData, clearGame, navigate);
+    reorderPlayers,
+  } = useGameActions(activeGame, loadGameData, clearGame, navigate, setGameStats);
 
   const chartData = useChartData(gameStats, rounds, activeGame);
   
   // New game form state
   const [selectedPlayers, setSelectedPlayers] = useState([]);
   const [totalRounds, setTotalRounds] = useState(getSetting('game.default_rounds', 10));
+  const [gameType, setGameType] = useState('standard');
+  const [gameDate, setGameDate] = useState(() => toLocalInputValue());
   const [gameNotes, setGameNotes] = useState('');
   const [gameLocation, setGameLocation] = useState('');
 
@@ -55,12 +60,18 @@ function GamePlay() {
       await createGameAction({
         player_ids: selectedPlayers,
         total_rounds: parseInt(totalRounds),
+        game_type: gameType,
+        // Null lets the backend stamp its own now, which is the honest thing to
+        // record if the field was somehow cleared.
+        date: fromLocalInputValue(gameDate),
         notes: gameNotes || null,
         location: gameLocation || null,
       });
-      
+
       // Reset form
       setSelectedPlayers([]);
+      setGameType('standard');
+      setGameDate(toLocalInputValue());
       setGameNotes('');
       setGameLocation('');
     } catch (error) {
@@ -81,6 +92,10 @@ function GamePlay() {
           onPlayerSelectionChange={setSelectedPlayers}
           totalRounds={totalRounds}
           onTotalRoundsChange={setTotalRounds}
+          gameType={gameType}
+          onGameTypeChange={setGameType}
+          gameDate={gameDate}
+          onGameDateChange={setGameDate}
           gameNotes={gameNotes}
           onGameNotesChange={setGameNotes}
           gameLocation={gameLocation}
@@ -100,6 +115,7 @@ function GamePlay() {
           onMinimizeGame={minimizeGame}
           onDeleteGame={deleteGame}
           onFinishGame={finishGame}
+          onReorderPlayers={reorderPlayers}
         />
       )}
     </div>

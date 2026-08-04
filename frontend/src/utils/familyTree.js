@@ -1,152 +1,353 @@
 /**
- * Build hierarchical tree structure from flat player list
- * Players are sorted by age (oldest first) within each generation
- * @param {Array} players - All players (needed for building complete relationships)
- * @param {string} searchTerm - Optional search filter
- * @param {Set} idsToShow - Set of player IDs to show (when not searching)
+ * Turning a family into something a tree renderer can draw.
+ *
+ * A family is not a tree. Two people have children together, so a child has two
+ * parents, and a tree gives every node exactly one. The old version drew the
+ * child once under each parent — the same person in two places, with no way to
+ * tell it was the same person.
+ *
+ * The fix is to stop treating a *person* as the unit of layout and use a
+ * UNION instead: the set of people who are parents together, drawn side by side
+ * with their children hanging beneath the couple. Then
+ *
+ *     the layout-parent of a person is the union of their parents
+ *
+ * and every person has exactly one of those, whatever their parents did. What
+ * was a graph is a tree again, and it is a tree by construction rather than by
+ * hoping the data stays simple.
+ *
+ * Unions come from two places:
+ *   - a declared partnership (`partner_ids`), which draws a couple even if they
+ *     have no children
+ *   - shared parenthood, which draws two people as a couple because they have a
+ *     child together, whether or not anyone recorded them as partners. This is
+ *     what makes existing data render correctly before a single partnership has
+ *     been entered.
+ *
+ * THE CASE THAT CANNOT BE DRAWN
+ * -----------------------------
+ * A couple can only hang in one place, but both halves have parents of their
+ * own. Whichever one is not chosen would lose their ancestry — so they are
+ * drawn a second time, as a GHOST: a dashed outline under their own parents,
+ * clicking through to the same player. Remarriage does the same thing (a person
+ * in two unions renders fully in one and as a ghost in the other). Every
+ * genealogy tool makes this trade; the alternative is duplicating whole
+ * subtrees, which is far more confusing.
  */
 
-export const buildFamilyTree = (players, searchTerm = '', idsToShow = null) => {
-  if (!players || players.length === 0) return [];
-  
-  // Create lookup map with ALL players (so relationships work)
-  const playerMap = new Map();
-  players.forEach(p => playerMap.set(p.id, { ...p, children: [] }));
-  
-  // Build parent-child relationships
-  players.forEach(player => {
-    const node = playerMap.get(player.id);
-    if (player.parent_ids && player.parent_ids.length > 0) {
-      player.parent_ids.forEach(parentId => {
-        const parent = playerMap.get(parentId);
-        if (parent && !parent.children.find(c => c.id === player.id)) {
-          parent.children.push(node);
-        }
-      });
-    }
-  });
-  
-  // Sort children by age (oldest first)
-  playerMap.forEach(node => {
-    node.children.sort((a, b) => {
-      if (!a.birthdate && !b.birthdate) return 0;
-      if (!a.birthdate) return 1;
-      if (!b.birthdate) return -1;
-      return new Date(a.birthdate) - new Date(b.birthdate);
-    });
-  });
-  
-  // Find root nodes (no parents) - from ALL players
-  const allRoots = Array.from(playerMap.values()).filter(p => 
-    !p.parent_ids || p.parent_ids.length === 0
-  );
-  
-  // Sort roots by age
-  allRoots.sort((a, b) => {
-    if (!a.birthdate && !b.birthdate) return 0;
-    if (!a.birthdate) return 1;
-    if (!b.birthdate) return -1;
-    return new Date(a.birthdate) - new Date(b.birthdate);
-  });
-  
-  // If searching, show matching nodes and their families
+// Union keys are built from member ids so that the same set of people always
+// produces the same union, no matter which relationship implied it.
+const unionKey = (memberIds) => [...memberIds].sort((a, b) => a - b).join(',');
+
+const byBirthdate = (a, b) => {
+  if (!a.birthdate && !b.birthdate) return 0;
+  if (!a.birthdate) return 1;
+  if (!b.birthdate) return -1;
+  return new Date(a.birthdate) - new Date(b.birthdate);
+};
+
+const matchesSearch = (player, term) =>
+  player.alias.toLowerCase().includes(term) ||
+  (player.first_name && player.first_name.toLowerCase().includes(term)) ||
+  (player.last_name && player.last_name.toLowerCase().includes(term));
+
+/**
+ * The ids worth drawing for a given search, or for the "recent players" view.
+ *
+ * Searching pulls in the whole family of every match — ancestors, descendants
+ * and partners — because a match on its own tells you nothing about where the
+ * person sits. The unsearched view shows the recent players plus their
+ * partners, so a couple is never drawn as half a couple.
+ */
+const relevantIds = (players, playerMap, searchTerm, idsToShow) => {
+  const partnersOf = (id) => playerMap.get(id)?.partner_ids || [];
+
   if (searchTerm) {
-    const filteredPlayers = players.filter(p => 
-      p.alias.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.first_name && p.first_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (p.last_name && p.last_name.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
-    
-    if (filteredPlayers.length === 0) return [];
-    
-    const matchingIds = new Set(filteredPlayers.map(p => p.id));
-    const relevantIds = new Set();
-    
-    // Add all ancestors and descendants of matching nodes
-    const addAncestorsAndDescendants = (nodeId) => {
-      if (relevantIds.has(nodeId)) return;
-      relevantIds.add(nodeId);
-      
-      const node = playerMap.get(nodeId);
-      if (!node) return;
-      
-      // Add parents (ancestors)
-      if (node.parent_ids) {
-        node.parent_ids.forEach(pid => addAncestorsAndDescendants(pid));
-      }
-      
-      // Add children (descendants)
-      node.children.forEach(child => addAncestorsAndDescendants(child.id));
-    };
-    
-    matchingIds.forEach(id => addAncestorsAndDescendants(id));
-    
-    // Filter tree to only relevant nodes. Same loop guard as the D3 converter:
-    // a cycle in the data would otherwise recurse forever here too.
-    const filterTree = (nodes, ancestors = new Set()) => {
-      return nodes
-        .filter(node => relevantIds.has(node.id) && !ancestors.has(node.id))
-        .map(node => ({
-          ...node,
-          children: filterTree(node.children, new Set(ancestors).add(node.id))
-        }));
+    const matched = players.filter((p) => matchesSearch(p, searchTerm));
+    if (matched.length === 0) return new Set();
+
+    const relevant = new Set();
+    const visit = (id) => {
+      if (relevant.has(id)) return;
+      relevant.add(id);
+
+      const player = playerMap.get(id);
+      if (!player) return;
+
+      (player.parent_ids || []).forEach(visit);
+      (player.child_ids || []).forEach(visit);
+      partnersOf(id).forEach(visit);
     };
 
-    return filterTree(allRoots);
+    matched.forEach((p) => visit(p.id));
+    return relevant;
   }
-  
-  // If idsToShow provided (no search), filter roots to only recent players
-  // This shows a "forest" of disconnected trees for recent players
+
   if (idsToShow && idsToShow.size > 0) {
-    return allRoots.filter(root => idsToShow.has(root.id));
+    const relevant = new Set(idsToShow);
+    idsToShow.forEach((id) => partnersOf(id).forEach((partnerId) => {
+      if (playerMap.has(partnerId)) relevant.add(partnerId);
+    }));
+    return relevant;
   }
-  
-  return allRoots;
+
+  return new Set(players.map((p) => p.id));
 };
 
 /**
- * Convert family tree to react-d3-tree format
- * If multiple roots (forest), wraps them under an invisible root
+ * Group the visible players into unions.
+ *
+ * @returns {Map} union key to { key, memberIds, childIds, isDeclared }
  */
-export const convertToD3TreeFormat = (familyTree) => {
-  // `ancestors` holds the ids on the path from the root down to this node. If a
-  // node turns up inside its own ancestry the data contains a loop (A parent of
-  // B, B parent of A), and recursing further never terminates — which used to
-  // take the whole page down with it. The server now refuses to store such a
-  // pair, but a database that already contains one must still render, so stop
-  // descending at the repeat and mark it instead.
-  const convert = (node, ancestors = new Set()) => {
-    const looping = ancestors.has(node.id);
-    const nextAncestors = new Set(ancestors).add(node.id);
+const buildUnions = (visible, playerMap) => {
+  const unions = new Map();
+
+  const ensure = (memberIds, isDeclared) => {
+    const key = unionKey(memberIds);
+    if (!unions.has(key)) {
+      unions.set(key, {
+        key,
+        memberIds: [...memberIds].sort((a, b) => a - b),
+        childIds: [],
+        // A couple who are recorded as partners, rather than two people we
+        // inferred were a couple because they share a child. Drawn differently
+        // so the tree does not assert a relationship nobody entered.
+        isDeclared: false,
+      });
+    }
+    if (isDeclared) unions.get(key).isDeclared = true;
+    return unions.get(key);
+  };
+
+  // Unions implied by parenthood. The parent set is filtered to visible
+  // players, so a hidden parent does not create a union with a gap in it.
+  visible.forEach((player) => {
+    const parents = (player.parent_ids || []).filter((id) => playerMap.has(id));
+    if (parents.length > 0) ensure(parents, false).childIds.push(player.id);
+  });
+
+  // Unions declared as partnerships, whether or not they have children.
+  visible.forEach((player) => {
+    (player.partner_ids || [])
+      .filter((id) => playerMap.has(id))
+      .forEach((partnerId) => ensure([player.id, partnerId], true));
+  });
+
+  // Anyone left over stands alone. A union of one is still a union, which is
+  // what keeps the rest of this file free of special cases.
+  const claimed = new Set();
+  unions.forEach((union) => union.memberIds.forEach((id) => claimed.add(id)));
+  visible.forEach((player) => {
+    if (!claimed.has(player.id)) ensure([player.id], false);
+  });
+
+  unions.forEach((union) => {
+    union.childIds.sort((a, b) => byBirthdate(playerMap.get(a), playerMap.get(b)));
+  });
+
+  return unions;
+};
+
+/**
+ * Decide, for each person, which union draws them for real.
+ *
+ * Someone with two partnerships belongs to two unions and can only be drawn
+ * properly in one. The one with more children wins — that is the branch with
+ * more hanging off it, and the one a reader is more likely to be following.
+ */
+const chooseHomeUnions = (unions) => {
+  const home = new Map();
+
+  const score = (union) => union.childIds.length;
+
+  unions.forEach((union) => {
+    union.memberIds.forEach((id) => {
+      const current = home.get(id);
+      if (!current) {
+        home.set(id, union);
+        return;
+      }
+      if (score(union) > score(current)) home.set(id, union);
+    });
+  });
+
+  return home;
+};
+
+/**
+ * The member whose parents decide where a union hangs.
+ *
+ * Preference goes to a member this union actually draws (its home union) and
+ * who has visible parents. A union nobody can anchor is a root.
+ */
+const chooseAnchors = (unions, playerMap, homeUnions) => {
+  const anchors = new Map();
+
+  unions.forEach((union) => {
+    const candidates = union.memberIds.filter((id) => {
+      const player = playerMap.get(id);
+      const parents = (player?.parent_ids || []).filter((pid) => playerMap.has(pid));
+      return parents.length > 0 && homeUnions.get(id) === union;
+    });
+
+    if (candidates.length > 0) anchors.set(union.key, candidates[0]);
+  });
+
+  return anchors;
+};
+
+const personAttributes = (player, { isGhost = false } = {}) => ({
+  id: player.id,
+  alias: player.alias,
+  firstName: player.first_name || '',
+  middleName: player.middle_name || '',
+  lastName: player.last_name || '',
+  birthdate: player.birthdate || '',
+  // Matches played, not age: what people want to know on hover is how much
+  // someone has played, and age is already implied by where they sit.
+  matches: player.games_played ?? 0,
+  isGhost,
+});
+
+/**
+ * Build the union forest and convert it straight to react-d3-tree's format.
+ *
+ * @param {Array} players - all players, each with parent_ids/child_ids/partner_ids
+ * @param {string} searchTerm - optional search filter
+ * @param {Set} idsToShow - ids to show when not searching
+ * @returns {Array} root nodes
+ */
+export const buildFamilyTree = (players, searchTerm = '', idsToShow = null) => {
+  if (!players || players.length === 0) return [];
+
+  const term = searchTerm.trim().toLowerCase();
+  const allById = new Map(players.map((p) => [p.id, p]));
+
+  const visibleIds = relevantIds(players, allById, term, idsToShow);
+  if (visibleIds.size === 0) return [];
+
+  const playerMap = new Map(
+    players.filter((p) => visibleIds.has(p.id)).map((p) => [p.id, p])
+  );
+  const visible = [...playerMap.values()];
+
+  const unions = buildUnions(visible, playerMap);
+  const homeUnions = chooseHomeUnions(unions);
+  const anchors = chooseAnchors(unions, playerMap, homeUnions);
+
+  // Where each union hangs: under the union formed by its anchor's parents.
+  const childUnionsByParentKey = new Map();
+  const rootUnions = [];
+
+  unions.forEach((union) => {
+    const anchorId = anchors.get(union.key);
+    if (anchorId === undefined) {
+      rootUnions.push(union);
+      return;
+    }
+
+    const parentKey = unionKey(
+      (playerMap.get(anchorId).parent_ids || []).filter((id) => playerMap.has(id))
+    );
+
+    if (!childUnionsByParentKey.has(parentKey)) childUnionsByParentKey.set(parentKey, []);
+    childUnionsByParentKey.get(parentKey).push(union);
+  });
+
+  // Which unions have been drawn, across all roots. A union hangs from at most
+  // one place, so this is a record rather than a guard — except after a cycle,
+  // where it is what stops the same ring being drawn from every angle.
+  const emitted = new Set();
+
+  const toNode = (union, seen) => {
+    // A loop in the stored data would otherwise recurse until the tab dies. The
+    // server refuses to create one, but a database that already contains one
+    // still has to render.
+    if (seen.has(union.key)) return null;
+    const nextSeen = new Set(seen).add(union.key);
+    emitted.add(union.key);
+
+    const members = union.memberIds
+      .map((id) => playerMap.get(id))
+      .filter(Boolean)
+      .sort(byBirthdate)
+      .map((player) => personAttributes(player, {
+        isGhost: homeUnions.get(player.id) !== union,
+      }));
+
+    const anchorId = anchors.get(union.key);
+
+    // Children of this union: each child's own union if that child anchors it,
+    // otherwise a ghost, because the real one is drawn under their partner's
+    // parents instead.
+    const childNodes = [];
+    union.childIds.forEach((childId) => {
+      const home = homeUnions.get(childId);
+      if (home && anchors.get(home.key) === childId) return; // added below
+      childNodes.push({
+        name: playerMap.get(childId).alias,
+        attributes: {
+          kind: 'ghost',
+          members: [personAttributes(playerMap.get(childId), { isGhost: true })],
+          unionKey: `ghost:${union.key}:${childId}`,
+        },
+        children: [],
+      });
+    });
+
+    (childUnionsByParentKey.get(union.key) || []).forEach((childUnion) => {
+      const node = toNode(childUnion, nextSeen);
+      if (node) childNodes.push(node);
+    });
 
     return {
-      name: node.alias,
+      // react-d3-tree keys off `name`; the members carry what is actually drawn.
+      name: members.map((m) => m.alias).join(' & '),
       attributes: {
-        id: node.id,
-        firstName: node.first_name || '',
-        middleName: node.middle_name || '',
-        lastName: node.last_name || '',
-        birthdate: node.birthdate || '',
-        age: node.birthdate ? calculateAge(node.birthdate) : null,
-        ...(looping ? { isLoop: true } : {})
+        kind: 'union',
+        unionKey: union.key,
+        members,
+        isDeclared: union.isDeclared,
+        anchorId: anchorId ?? null,
       },
-      children: looping ? [] : node.children.map(child => convert(child, nextAncestors))
+      children: childNodes,
     };
   };
 
-  const converted = familyTree.map(node => convert(node));
-  
-  // If multiple roots (forest), wrap in an invisible parent
-  if (converted.length > 1) {
-    return {
-      name: '',  // Empty name - invisible node
-      attributes: { id: -1, isInvisible: true },
-      children: converted
-    };
+  const roots = rootUnions.map((union) => toNode(union, new Set())).filter(Boolean);
+
+  // Every union in a cycle hangs from another union in the same cycle, so the
+  // ring has no root and nothing above would ever reach it. Left at that, one
+  // bad pair of edges hides the entire family. Anything still undrawn is
+  // promoted to a root instead; the loop guard above keeps it finite.
+  unions.forEach((union) => {
+    if (emitted.has(union.key)) return;
+    const node = toNode(union, new Set());
+    if (node) roots.push(node);
+  });
+
+  return roots.sort((a, b) => byBirthdate(
+    playerMap.get(a.attributes.members[0].id),
+    playerMap.get(b.attributes.members[0].id)
+  ));
+};
+
+/**
+ * Wrap a forest under an invisible root, which is what react-d3-tree needs to
+ * draw more than one family at once.
+ */
+export const convertToD3TreeFormat = (familyTree) => {
+  if (!familyTree || familyTree.length === 0) {
+    return { name: 'No players', attributes: { kind: 'empty', members: [] }, children: [] };
   }
-  
-  // Single tree or no trees
-  return converted.length > 0 ? converted[0] : { name: 'No players', attributes: { id: -1 }, children: [] };
+
+  if (familyTree.length === 1) return familyTree[0];
+
+  return {
+    name: '',
+    attributes: { kind: 'invisible', members: [] },
+    children: familyTree,
+  };
 };
 
 // Courier New advances 0.6em per glyph, and every glyph the same — which is the
@@ -159,24 +360,60 @@ const MONOSPACE_ADVANCE = 0.6;
 const USABLE_DIAMETER_FRACTION = 0.85;
 
 const DEFAULT_MAX_FONT_SIZE = 12;
-const DEFAULT_MIN_FONT_SIZE = 9;
+// 8px is small but still legible, and it is what lets a seven-letter name like
+// "camilla" sit whole inside a radius-20 circle. At the old floor of 9 it
+// missed by half a character and got cut to "camil…", which is the worst of
+// both worlds: no shorter to read, and no longer the name.
+const DEFAULT_MIN_FONT_SIZE = 8;
+
+/**
+ * The abbreviations to try when the alias will not fit, best first.
+ *
+ * Never a mid-word cut. "camil…" reads as a word that got truncated, which
+ * makes the reader wonder what was lost; "CA" reads as an abbreviation, which
+ * tells them to look at the tooltip. Same information, less doubt.
+ *
+ * @param {string} label - the alias
+ * @param {Array} nameParts - [first, middle, last], any of them blank
+ */
+const abbreviations = (label, nameParts) => {
+  const candidates = [];
+
+  // Initials of the real name: "Camilla Andersen" becomes "CA".
+  const named = (nameParts || []).map((part) => (part || '').trim()).filter(Boolean);
+  if (named.length > 1) {
+    candidates.push(named.map((part) => part[0].toUpperCase()).join(''));
+  }
+
+  // Initials of an alias that is itself several words: "john-cleave-doe"
+  // becomes "JCD". Split on the separators people actually use in names.
+  const words = label.split(/[\s._-]+/).filter(Boolean);
+  if (words.length > 1) {
+    candidates.push(words.map((word) => word[0].toUpperCase()).join(''));
+  }
+
+  // A one-word alias with no name recorded has no initials at all, so take its
+  // opening letters instead: "camilla" becomes "CA".
+  candidates.push(label.slice(0, 2).toUpperCase());
+
+  return candidates;
+};
 
 /**
  * Choose what to write inside a node and how big to write it.
  *
  * Preference order, stopping at the first thing that fits:
  *   1. the alias itself, as large as possible
- *   2. the alias shrunk, down to a floor where it is still readable
- *   3. initials — "John Cleave Doe" becomes "JCD"
- *   4. a truncated form with an ellipsis, for a single long word that has no
- *      initials to fall back on ("Bartholomew" cannot become anything shorter
- *      and still be itself)
+ *   2. the alias shrunk, down to a floor where it is still readable — a name
+ *      that fits at all is always clearer than an abbreviation of it
+ *   3. an abbreviation, per `abbreviations` above
  *
- * The full alias is always in the node's <title>, so nothing is lost by
- * abbreviating here.
+ * The full alias and name are always in the node's <title>, so nothing is lost
+ * by abbreviating here.
  *
  * @param {string} name - the alias to display
  * @param {number} radius - node radius in px
+ * @param {Object} options - { nameParts, maxFontSize, minFontSize }
  * @returns {{ text: string, fontSize: number }}
  */
 export const fitNodeLabel = (name, radius, options = {}) => {
@@ -200,36 +437,14 @@ export const fitNodeLabel = (name, radius, options = {}) => {
   const fullSize = bestSizeFor(label);
   if (fullSize !== null) return { text: label, fontSize: fullSize };
 
-  // Split on the separators people actually use in names.
-  const words = label.split(/[\s._-]+/).filter(Boolean);
-  if (words.length > 1) {
-    const initials = words.map(w => w[0].toUpperCase()).join('');
-    const initialsSize = bestSizeFor(initials);
-    if (initialsSize !== null) return { text: initials, fontSize: initialsSize };
-    return { text: truncate(initials, usableWidth, minFontSize), fontSize: minFontSize };
+  for (const candidate of abbreviations(label, options.nameParts)) {
+    const size = bestSizeFor(candidate);
+    if (size !== null) return { text: candidate, fontSize: size };
   }
 
-  return { text: truncate(label, usableWidth, minFontSize), fontSize: minFontSize };
-};
-
-/** Cut `text` to what fits at `size`, marking the cut with an ellipsis. */
-const truncate = (text, usableWidth, size) => {
-  const maxChars = Math.floor(usableWidth / (size * MONOSPACE_ADVANCE));
-  if (maxChars <= 1) return text.slice(0, 1);
-  return text.slice(0, maxChars - 1) + '…';
-};
-
-const calculateAge = (birthdate) => {
-  const today = new Date();
-  const birth = new Date(birthdate);
-  let age = today.getFullYear() - birth.getFullYear();
-  const monthDiff = today.getMonth() - birth.getMonth();
-  
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
-    age--;
-  }
-  
-  return age;
+  // A circle too small for even two characters. Show the one that fits rather
+  // than overflowing the node.
+  return { text: label.slice(0, 1).toUpperCase(), fontSize: minFontSize };
 };
 
 /**

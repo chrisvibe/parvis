@@ -1,0 +1,11 @@
+[
+  {
+    "year": 2019,
+    "player_alias": "example",
+    "score": 142
+  },
+  {
+    "year": 2018,
+    "player_alias": "someone-else"
+  }
+]

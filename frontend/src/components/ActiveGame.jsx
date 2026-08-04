@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import GameMatrix from './GameMatrix';
 import GameControls from './GameControls';
+import GameMetadataEditor from './GameMetadataEditor';
 import ScoreChart from './ScoreChart';
 import Leaderboard from './Leaderboard';
 
@@ -16,10 +17,12 @@ import Leaderboard from './Leaderboard';
  * @param {Function} onRoundUpdate - Handler for round updates
  * @param {Function} onReload - Handler to reload game data
  * @param {Function} onAdjustRounds - Handler for adjust rounds
- * @param {Function} onEditMetadata - Handler for edit metadata
+ * @param {Function} onEditMetadata - Save handler, receives the edited metadata
  * @param {Function} onMinimizeGame - Handler for minimize game
  * @param {Function} onDeleteGame - Handler for delete game
  * @param {Function} onFinishGame - Handler for finish game
+ * @param {Function} onReorderPlayers - Receives the player ids in their new
+ *        seating order
  */
 function ActiveGame({
   game,
@@ -33,21 +36,38 @@ function ActiveGame({
   onMinimizeGame,
   onDeleteGame,
   onFinishGame,
+  onReorderPlayers,
 }) {
+  const [editingMetadata, setEditingMetadata] = useState(false);
+
+  const handleSaveMetadata = async (values) => {
+    await onEditMetadata(values);
+    setEditingMetadata(false);
+  };
+
   return (
     <div className="active-game">
       <div className="game-header">
         <h2>
           Game #{game.id} - Round {game.current_round}/{game.total_rounds}
+          {game.game_type === 'tournament' && <span className="badge">TOURNAMENT</span>}
         </h2>
         <GameControls
           game={game}
           onAdjustRounds={onAdjustRounds}
-          onEditMetadata={onEditMetadata}
+          onEditMetadata={() => setEditingMetadata(true)}
           onMinimizeGame={onMinimizeGame}
           onDeleteGame={onDeleteGame}
         />
       </div>
+
+      {editingMetadata && (
+        <GameMetadataEditor
+          game={game}
+          onSave={handleSaveMetadata}
+          onCancel={() => setEditingMetadata(false)}
+        />
+      )}
 
       <GameMatrix
         game={game}
@@ -56,6 +76,7 @@ function ActiveGame({
         onRoundsUpdate={onRoundUpdate}
         onReload={onReload}
         onFinishGame={onFinishGame}
+        onReorderPlayers={onReorderPlayers}
       />
 
       <ScoreChart

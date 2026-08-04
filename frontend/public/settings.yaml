@@ -20,7 +20,16 @@ tree:
 game:
   default_rounds: 10
   default_bet: 0
-  
+  # How a round starts out before anyone marks results. Most bets are made, so
+  # assuming success means MARK RESULTS is a matter of clicking the few players
+  # who went down rather than nearly everyone.
+  #
+  # Note what this does to the running total: an unmarked round already counts
+  # as won, so the leaderboard mid-round reads "what everyone gets if they all
+  # make it" instead of "nobody has anything yet". It is provisional either way
+  # — set this to false for the old behaviour.
+  default_success: true
+
 matrix:
   cell_empty: "#1a1a2e"
   cell_bet_pending: "#444444"
@@ -41,3 +50,6 @@ colors:
   edge_color: "#00ff00"
   background: "#0a0e27"
   text: "#00ff00"
+  border: "#2a3a5a"     # separators inside panels (hall of fame rows, etc.)
+  muted: "#666666"      # secondary label text
+  attention: "#ff6600"  # record values, tournament badge

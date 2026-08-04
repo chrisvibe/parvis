@@ -106,12 +106,24 @@ export const gamesApi = {
       params: { round_number: roundNumber, player_id: playerId, bet, success }
     }),
   reactivate: (gameId) => api.post(`/games/${gameId}/reactivate`),
+  // The whole roster, in seat order. The backend refuses a partial list, since
+  // the seats it left out would have no defined home.
+  setPlayerOrder: (gameId, playerIds) =>
+    api.put(`/games/${gameId}/player-order`, { player_ids: playerIds }),
+  // Omitted params are left alone by the backend, so a caller can send only
+  // what it means to change.
   updateMetadata: (gameId, data) => api.put(`/games/${gameId}/metadata`, null, {
     params: {
       notes: data.notes,
-      location: data.location
+      location: data.location,
+      game_type: data.game_type,
+      date: data.date,
     }
   }),
+};
+
+export const hallOfFameApi = {
+  get: () => api.get('/hall-of-fame'),
 };
 
 export default api;

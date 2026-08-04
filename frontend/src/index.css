@@ -1,3 +1,10 @@
+/*
+ * Colours come from the theme (src/utils/theme.js), which writes every
+ * `--name` used below onto :root before the first render. Do not write a hex
+ * literal in this file — add or reuse a variable instead, so that a colour can
+ * be changed in one place and settings.yaml can override it.
+ */
+
 * {
   margin: 0;
   padding: 0;
@@ -6,8 +13,8 @@
 
 body {
   font-family: 'Courier New', monospace;
-  background: #0a0e27;
-  color: #00ff00;
+  background: var(--bg);
+  color: var(--fg);
   line-height: 1.6;
 }
 
@@ -30,7 +37,7 @@ body {
   left: 0;
   bottom: 0;
   right: 0;
-  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
               linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
   z-index: 2;
   background-size: 100% 2px, 3px 100%;
@@ -64,8 +71,8 @@ body {
 
 /* Navigation */
 .nav {
-  background: #1a1a2e;
-  border: 2px solid #00ff00;
+  background: var(--panel-alt);
+  border: 2px solid var(--fg);
   padding: 15px;
   margin-bottom: 30px;
   box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
@@ -81,10 +88,10 @@ body {
 
 .nav-header h1 {
   margin: 0;
-  color: #00ff00;
+  color: var(--fg);
   text-align: center;
   font-size: 2.5rem;
-  text-shadow: 0 0 10px #00ff00;
+  text-shadow: 0 0 10px var(--fg);
 }
 
 .header-card {
@@ -100,10 +107,10 @@ body {
 }
 
 .nav h1 {
-  color: #00ff00;
+  color: var(--fg);
   text-align: center;
   font-size: 2.5rem;
-  text-shadow: 0 0 10px #00ff00;
+  text-shadow: 0 0 10px var(--fg);
   margin-bottom: 15px;
 }
 
@@ -116,9 +123,9 @@ body {
 
 /* Buttons */
 button, .button {
-  background: #1a1a2e;
-  color: #00ff00;
-  border: 2px solid #00ff00;
+  background: var(--panel-alt);
+  color: var(--fg);
+  border: 2px solid var(--fg);
   padding: 10px 20px;
   font-family: 'Courier New', monospace;
   font-size: 1rem;
@@ -130,8 +137,8 @@ button, .button {
 }
 
 button:hover, .button:hover {
-  background: #00ff00;
-  color: #0a0e27;
+  background: var(--fg);
+  color: var(--bg);
   box-shadow: 0 0 20px rgba(0, 255, 0, 0.6);
 }
 
@@ -140,28 +147,50 @@ button:active, .button:active {
 }
 
 button.active {
-  background: #00ff00;
-  color: #0a0e27;
+  background: var(--fg);
+  color: var(--bg);
 }
 
 button.success {
-  border-color: #00ff00;
-  color: #00ff00;
+  border-color: var(--fg);
+  color: var(--fg);
 }
 
 button.success:hover {
-  background: #00ff00;
-  color: #0a0e27;
+  background: var(--fg);
+  color: var(--bg);
 }
 
 button.danger {
-  border-color: #ff0000;
-  color: #ff0000;
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 button.danger:hover {
-  background: #ff0000;
+  background: var(--danger);
   color: #fff;
+}
+
+/* A button that reads as the primary action of its toolbar. */
+button.primary {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+button.small {
+  padding: 5px 15px;
+  font-size: 0.9rem;
+}
+
+.button-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.button-row.tight {
+  gap: 5px;
+  margin-top: 0;
 }
 
 .game-controls {
@@ -172,24 +201,35 @@ button.danger:hover {
 
 /* Cards */
 .card {
-  background: #16213e;
-  border: 2px solid #00ff00;
+  background: var(--panel);
+  border: 2px solid var(--fg);
   padding: 20px;
   margin: 20px 0;
   box-shadow: 0 0 15px rgba(0, 255, 0, 0.2);
 }
 
 .card h2 {
-  color: #00ff00;
+  color: var(--fg);
   margin-bottom: 15px;
-  text-shadow: 0 0 5px #00ff00;
+  text-shadow: 0 0 5px var(--fg);
+}
+
+.card h3 {
+  color: var(--fg);
+  margin-bottom: 15px;
+}
+
+/* A card sunk into another card, e.g. the player form inside the registry. */
+.card.inset {
+  background: var(--bg);
+  margin-bottom: 30px;
 }
 
 /* Forms */
 input, select {
-  background: #0a0e27;
-  color: #00ff00;
-  border: 2px solid #00ff00;
+  background: var(--bg);
+  color: var(--fg);
+  border: 2px solid var(--fg);
   padding: 10px;
   font-family: 'Courier New', monospace;
   font-size: 1rem;
@@ -205,9 +245,9 @@ input:focus, select:focus {
 
 /* Date Picker Styling */
 .date-picker-input {
-  background: #0a0e27;
-  color: #00ff00;
-  border: 2px solid #00ff00;
+  background: var(--bg);
+  color: var(--fg);
+  border: 2px solid var(--fg);
   padding: 10px;
   font-family: 'Courier New', monospace;
   font-size: 1rem;
@@ -217,24 +257,24 @@ input:focus, select:focus {
 }
 
 .react-datepicker {
-  background: #0a0e27 !important;
-  border: 2px solid #00ff00 !important;
+  background: var(--bg) !important;
+  border: 2px solid var(--fg) !important;
   font-family: 'Courier New', monospace !important;
 }
 
 .react-datepicker__header {
-  background: #1a1a2e !important;
-  border-bottom: 2px solid #00ff00 !important;
+  background: var(--panel-alt) !important;
+  border-bottom: 2px solid var(--fg) !important;
 }
 
 .react-datepicker__current-month,
 .react-datepicker__day-name,
 .react-datepicker-time__header {
-  color: #00ff00 !important;
+  color: var(--fg) !important;
 }
 
 .react-datepicker__day {
-  color: #00ff00 !important;
+  color: var(--fg) !important;
 }
 
 .react-datepicker__day:hover {
@@ -243,22 +283,56 @@ input:focus, select:focus {
 
 .react-datepicker__day--selected,
 .react-datepicker__day--keyboard-selected {
-  background: #00ff00 !important;
-  color: #0a0e27 !important;
+  background: var(--fg) !important;
+  color: var(--bg) !important;
 }
 
 .react-datepicker__day--disabled {
-  color: #666 !important;
+  color: var(--muted) !important;
 }
 
 .react-datepicker__triangle {
   display: none;
 }
 
+/* The time column, shown next to the calendar when a field picks a time too.
+   It ships with its own light background, which on this theme would be a white
+   panel bolted to the side of a black one. */
+.react-datepicker__time-container {
+  border-left: 2px solid var(--fg) !important;
+}
+
+.react-datepicker__time,
+.react-datepicker__time-box,
+.react-datepicker__time-list {
+  background: var(--bg) !important;
+}
+
+.react-datepicker__time-list-item {
+  color: var(--fg) !important;
+}
+
+.react-datepicker__time-list-item:hover {
+  background: rgba(0, 255, 0, 0.2) !important;
+}
+
+.react-datepicker__time-list-item--selected {
+  background: var(--fg) !important;
+  color: var(--bg) !important;
+}
+
 label {
   display: block;
   margin: 10px 0 5px;
-  color: #00ff00;
+  color: var(--fg);
+}
+
+/* Explanatory line under a label. */
+.field-hint {
+  color: var(--fg);
+  opacity: 0.7;
+  font-size: 0.9rem;
+  margin-bottom: 10px;
 }
 
 /* Tables */
@@ -266,19 +340,19 @@ table {
   width: 100%;
   border-collapse: collapse;
   margin: 20px 0;
-  background: #16213e;
+  background: var(--panel);
 }
 
 th, td {
-  border: 1px solid #00ff00;
+  border: 1px solid var(--fg);
   padding: 12px;
   text-align: left;
 }
 
 th {
-  background: #1a1a2e;
-  color: #00ff00;
-  text-shadow: 0 0 5px #00ff00;
+  background: var(--panel-alt);
+  color: var(--fg);
+  text-shadow: 0 0 5px var(--fg);
 }
 
 tr:hover {
@@ -302,8 +376,8 @@ tr:hover {
 }
 
 .stat-box {
-  background: #1a1a2e;
-  border: 2px solid #00ff00;
+  background: var(--panel-alt);
+  border: 2px solid var(--fg);
   padding: 15px;
   text-align: center;
   box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
@@ -311,14 +385,14 @@ tr:hover {
 
 .stat-box .label {
   font-size: 0.9rem;
-  color: #00ff00;
+  color: var(--fg);
   opacity: 0.8;
 }
 
 .stat-box .value {
   font-size: 2rem;
-  color: #00ff00;
-  text-shadow: 0 0 10px #00ff00;
+  color: var(--fg);
+  text-shadow: 0 0 10px var(--fg);
   margin-top: 5px;
 }
 
@@ -327,15 +401,15 @@ tr:hover {
   text-align: center;
   padding: 50px;
   font-size: 1.5rem;
-  color: #00ff00;
-  text-shadow: 0 0 10px #00ff00;
+  color: var(--fg);
+  text-shadow: 0 0 10px var(--fg);
 }
 
 /* Error */
 .error {
   background: rgba(255, 0, 0, 0.1);
-  border: 2px solid #ff0000;
-  color: #ff0000;
+  border: 2px solid var(--danger);
+  color: var(--danger);
   padding: 15px;
   margin: 20px 0;
   box-shadow: 0 0 15px rgba(255, 0, 0, 0.3);
@@ -344,8 +418,8 @@ tr:hover {
 /* Success */
 .success {
   background: rgba(0, 255, 0, 0.1);
-  border: 2px solid #00ff00;
-  color: #00ff00;
+  border: 2px solid var(--fg);
+  color: var(--fg);
   padding: 15px;
   margin: 20px 0;
   box-shadow: 0 0 15px rgba(0, 255, 0, 0.3);
@@ -366,8 +440,8 @@ tr:hover {
 }
 
 .modal {
-  background: #0a0e27;
-  border: 3px solid #00ff00;
+  background: var(--bg);
+  border: 3px solid var(--fg);
   padding: 30px;
   max-width: 600px;
   width: 90%;
@@ -386,7 +460,7 @@ tr:hover {
 .modal-close {
   background: none;
   border: none;
-  color: #ff0000;
+  color: var(--danger);
   font-size: 2rem;
   cursor: pointer;
   padding: 0;
@@ -394,17 +468,300 @@ tr:hover {
   height: 40px;
 }
 
+/* ==========================================================================
+   Layout helpers
+   ========================================================================== */
+
+/* A heading with its actions pushed to the far end. */
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+/* Vertical rhythm between the blocks of a page. */
+.section {
+  margin-top: 30px;
+}
+
+.section.wide {
+  margin-top: 40px;
+}
+
+/* A panel of read-only detail, e.g. a game's metadata. */
+.detail-panel {
+  margin-top: 20px;
+  padding: 20px;
+  background: var(--panel);
+  border-radius: 8px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+}
+
+.detail-grid .full-width {
+  grid-column: 1 / -1;
+}
+
+.panel-footer {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid var(--fg);
+}
+
+/* A summary line closing off a page, e.g. TOTAL PLAYERS. */
+.total-banner {
+  margin-top: 30px;
+  padding: 15px;
+  border: 1px solid var(--fg);
+  background: rgba(0, 255, 0, 0.05);
+}
+
+/* A short label attached to something else, e.g. TOURNAMENT on a game title. */
+.badge {
+  margin-left: 10px;
+  padding: 2px 8px;
+  border: 1px solid var(--attention);
+  border-radius: 3px;
+  color: var(--attention);
+  font-size: 0.6em;
+  letter-spacing: 0.1em;
+  vertical-align: middle;
+}
+
+/* Centred "nothing here yet" note. */
+.empty-note {
+  margin-top: 20px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.empty-note.attention {
+  color: var(--attention);
+}
+
+/* A row of mutually exclusive choices, joined so they read as one control
+   rather than three separate buttons. `button.active` marks the current one. */
+.segmented {
+  display: flex;
+  margin-bottom: 8px;
+}
+
+.segmented button {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  letter-spacing: 0.05em;
+  box-shadow: none;
+}
+
+/* Collapse the shared borders so the group has one outline, not three. */
+.segmented button + button {
+  margin-left: -2px;
+}
+
+/* Keep the selected one's border above its neighbours' overlapping edges. */
+.segmented button.active {
+  position: relative;
+  z-index: 1;
+}
+
+/* ==========================================================================
+   Multi-select (search box + dropdown + chips)
+   ========================================================================== */
+
+.multi-select select {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.multi-select .search-input {
+  margin-bottom: 10px;
+}
+
+.selection-box {
+  border: 2px solid var(--fg);
+  padding: 10px;
+  margin: 10px 0;
+  background: var(--panel);
+  min-height: 60px;
+}
+
+.selection-box .title {
+  color: var(--fg);
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+
+.selection-box .empty {
+  color: var(--fg);
+  opacity: 0.5;
+  text-align: center;
+  padding: 10px;
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--bg);
+  border: 1px solid var(--fg);
+  border-radius: 4px;
+  color: var(--fg);
+}
+
+.chip .remove {
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: var(--danger);
+  cursor: pointer;
+  padding: 0 5px;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.chip .remove:hover {
+  background: none;
+  color: #fff;
+  box-shadow: none;
+}
+
+/* ==========================================================================
+   Text tone
+   ========================================================================== */
+
+.text-good { color: var(--fg); }
+.text-bad { color: var(--danger); }
+.text-warn { color: var(--warn); }
+.text-small { font-size: 0.9em; }
+
+.text-key {
+  color: var(--fg);
+  font-weight: bold;
+}
+
+.text-headline {
+  font-size: 1.2rem;
+  color: var(--fg);
+}
+
+/* ==========================================================================
+   About page + hall of fame
+   ========================================================================== */
+
+.about-layout {
+  display: grid;
+  grid-template-columns: 1fr minmax(280px, 380px);
+  gap: 30px;
+  align-items: start;
+}
+
+.hall-of-fame h3 {
+  margin-bottom: 10px;
+  letter-spacing: 0.1em;
+}
+
+/*
+  Ten years visible, the rest reachable. The height is derived from the row
+  height rather than guessed in pixels, so changing the font does not silently
+  turn ten rows into nine and a half.
+*/
+.hall-of-fame {
+  --winner-row-height: 2em;
+}
+
+.hall-of-fame .winners-scroll {
+  max-height: calc(10 * var(--winner-row-height));
+  overflow-y: auto;
+  border: 1px solid var(--border);
+}
+
+.hall-of-fame table.winners {
+  width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+}
+
+.hall-of-fame table.winners td {
+  height: var(--winner-row-height);
+  padding: 0 10px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.hall-of-fame table.winners tr:last-child td {
+  border-bottom: none;
+}
+
+.hall-of-fame table.winners .year {
+  width: 4.5em;
+  color: var(--muted);
+}
+
+.hall-of-fame table.winners .winner-name {
+  color: var(--fg);
+  font-weight: bold;
+}
+
+.hall-of-fame .records {
+  margin: 0;
+}
+
+.hall-of-fame .records dt {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.hall-of-fame .records dd {
+  margin: 2px 0 0;
+}
+
+.hall-of-fame .record-value {
+  color: var(--attention);
+}
+
+.hall-of-fame .album-link {
+  margin-top: 25px;
+  padding-top: 15px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
+  .about-layout {
+    grid-template-columns: 1fr;
+  }
+
   .nav h1 {
     font-size: 1.8rem;
   }
-  
+
   .nav-buttons {
     flex-direction: column;
   }
-  
+
   .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -8,8 +8,8 @@
   align-items: center;
   margin-bottom: 20px;
   padding: 15px;
-  background: #1a1a2e;
-  border: 2px solid #00ff00;
+  background: var(--panel-alt);
+  border: 2px solid var(--fg);
 }
 
 .matrix-controls button {
@@ -17,17 +17,22 @@
   margin: 0;
 }
 
+/* The round-advancing action sits apart from the mode switches. */
+.matrix-controls .matrix-action {
+  margin-left: auto;
+}
+
 .mode-indicator {
   margin-left: auto;
-  color: #00ff00;
+  color: var(--fg);
   font-size: 0.9rem;
   opacity: 0.8;
 }
 
 .matrix-wrapper {
   overflow-x: auto;
-  border: 2px solid #00ff00;
-  background: #16213e;
+  border: 2px solid var(--fg);
+  background: var(--panel);
 }
 
 .game-matrix {
@@ -37,29 +42,97 @@
 }
 
 .game-matrix th {
-  background: #1a1a2e;
-  color: #00ff00;
+  background: var(--panel-alt);
+  color: var(--fg);
   padding: 12px;
-  border: 1px solid #00ff00;
+  border: 1px solid var(--fg);
   text-align: center;
   font-weight: bold;
-  text-shadow: 0 0 5px #00ff00;
+  text-shadow: 0 0 5px var(--fg);
   position: sticky;
   top: 0;
   z-index: 10;
 }
 
+/* ---------------------------------------------------------------------------
+   Reorderable player columns
+
+   Column order decides who bids first, so the header advertises that it can be
+   moved: a grab cursor for the mouse, and arrows that also work on a phone,
+   where HTML5 drag events never fire at all.
+   --------------------------------------------------------------------------- */
+
+.game-matrix th.player-header {
+  padding: 8px 6px;
+}
+
+.game-matrix th.player-header.draggable {
+  cursor: grab;
+  /* Otherwise a drag that starts on the alias selects the text instead. */
+  user-select: none;
+}
+
+.game-matrix th.player-header.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+/* Which side of this column the dragged one will land on is not worth
+   computing — the whole target lights up, and the drop swaps them. */
+.game-matrix th.player-header.drop-target {
+  background: var(--panel);
+  outline: 2px dashed var(--fg);
+  outline-offset: -4px;
+}
+
+.game-matrix th .player-name {
+  display: block;
+}
+
+.game-matrix th .seat-controls {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.game-matrix th .seat-controls button {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--fg);
+  /* Comfortably tappable without making the header row taller than the
+     alias needs. */
+  padding: 0 8px;
+  line-height: 1.4;
+  font-family: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  text-shadow: none;
+}
+
+.game-matrix th .seat-controls button:hover:not(:disabled) {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+/* At the ends of the row there is nowhere to go. Dimmed rather than hidden, so
+   the controls do not jump about as columns move. */
+.game-matrix th .seat-controls button:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
 .game-matrix td {
   padding: 0;
-  border: 1px solid #00ff00;
+  border: 1px solid var(--fg);
   text-align: center;
   min-width: 60px;
   height: 40px;
 }
 
 .round-label {
-  background: #1a1a2e;
-  color: #00ff00;
+  background: var(--panel-alt);
+  color: var(--fg);
   font-weight: bold;
   padding: 12px !important;
   position: sticky;
@@ -67,12 +140,30 @@
   z-index: 5;
 }
 
+.round-label.current {
+  background: var(--warn);
+  color: var(--bg);
+}
+
+/*
+ * Cell state.
+ *
+ * These used to be computed in JavaScript and applied as an inline style
+ * object, which is why the settings colours only reached the matrix and why a
+ * missing setting produced `backgroundColor: undefined`. The state now picks a
+ * class and the colours come from the theme like everywhere else.
+ */
 .matrix-cell {
   cursor: pointer;
   transition: all 0.2s;
   font-size: 1.1rem;
   font-weight: bold;
   user-select: none;
+  border-style: solid;
+  border-width: var(--cell-border-width);
+  border-color: var(--fg);
+  background: var(--cell-empty);
+  color: var(--fg);
 }
 
 .matrix-cell:hover {
@@ -81,7 +172,32 @@
 }
 
 .matrix-cell.priority {
+  border-width: var(--cell-priority-border-width);
+  border-color: var(--cell-priority);
   box-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+}
+
+.matrix-cell.pending {
+  background: var(--cell-bet-pending);
+  color: var(--bg);
+}
+
+.matrix-cell.success {
+  background: var(--cell-success);
+  color: #fff;
+}
+
+.matrix-cell.failed {
+  background: var(--cell-failed);
+  color: var(--bg);
+}
+
+/* Rounds that have not been reached yet are dimmed and inert. */
+.matrix-cell.future {
+  background: var(--cell-future-bg);
+  color: var(--cell-future-fg);
+  pointer-events: none;
+  opacity: 0.3;
 }
 
 .cell-input {
@@ -89,7 +205,7 @@
   height: 100%;
   border: none;
   background: rgba(255, 255, 0, 0.3);
-  color: #0a0e27;
+  color: var(--bg);
   text-align: center;
   font-family: 'Courier New', monospace;
   font-size: 1.1rem;
@@ -100,24 +216,24 @@
 }
 
 .total-label {
-  background: #1a1a2e;
-  color: #00ff00;
+  background: var(--panel-alt);
+  color: var(--fg);
   font-weight: bold;
   padding: 12px !important;
-  border-top: 3px solid #00ff00 !important;
+  border-top: 3px solid var(--fg) !important;
   position: sticky;
   left: 0;
   z-index: 5;
 }
 
 .total-cell {
-  background: #1a1a2e;
-  color: #00ff00;
+  background: var(--panel-alt);
+  color: var(--fg);
   font-size: 1.3rem;
   font-weight: bold;
   padding: 12px !important;
-  border-top: 3px solid #00ff00 !important;
-  text-shadow: 0 0 5px #00ff00;
+  border-top: 3px solid var(--fg) !important;
+  text-shadow: 0 0 5px var(--fg);
 }
 
 /* Responsive */
@@ -126,13 +242,13 @@
     flex-direction: column;
     align-items: stretch;
   }
-  
+
   .mode-indicator {
     margin-left: 0;
     margin-top: 10px;
     text-align: center;
   }
-  
+
   .game-matrix th,
   .game-matrix td {
     min-width: 50px;

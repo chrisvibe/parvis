@@ -31,6 +31,8 @@ services:
       - CORS_ORIGINS=*
       - PARVIS_PASSWORD=${PARVIS_PASSWORD:-}
       - PARVIS_ADMIN_PASSWORD=${PARVIS_ADMIN_PASSWORD:-}
+      - HALL_OF_FAME_ALBUM_URL=${HALL_OF_FAME_ALBUM_URL:-}
+      - HALL_OF_FAME_SEED=${HALL_OF_FAME_SEED:-}
     volumes:
       - ./backend:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload

@@ -1,36 +1,45 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { playersApi, runDestructive } from '../api';
-import { getSetting } from '../utils/settings';
+import RelationshipPicker, { RELATIONSHIPS } from '../components/RelationshipPicker';
+import { formatDate, parseDate, toDateOnly } from '../utils/datetime';
+
+// Mirrors EMAIL_PATTERN in backend/models.py
+const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+const EMPTY_FORM = {
+  alias: '',
+  email: '',
+  first_name: '',
+  middle_name: '',
+  last_name: '',
+  birthdate: null,
+  parent_ids: [],
+  child_ids: [],
+  partner_ids: [],
+};
+
+/** The server's complaint, in the plainest form it came in. */
+const errorMessage = (error) => {
+  const detail = error.response?.data?.detail;
+
+  if (Array.isArray(detail)) {
+    // FastAPI validation error: detail is a list of {loc, msg, ...}
+    return detail.map((d) => `${d.loc?.slice(-1)[0] ?? 'field'}: ${d.msg}`).join('\n');
+  }
+
+  return detail || 'Error saving player';
+};
 
 function Players() {
   const [players, setPlayers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState(null);
-  
-  // Form state
-  const [formData, setFormData] = useState({
-    alias: '',
-    email: '',
-    first_name: '',
-    middle_name: '',
-    last_name: '',
-    birthdate: null,
-    parent_ids: []
-  });
-  const [parentSearchTerm, setParentSearchTerm] = useState('');
+  const [formData, setFormData] = useState(EMPTY_FORM);
 
-  // Mirrors EMAIL_PATTERN in backend/models.py
-  const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-
-  useEffect(() => {
-    loadPlayers();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const loadPlayers = async () => {
+  const loadPlayers = useCallback(async () => {
     try {
       setLoading(true);
       const res = await playersApi.getAll();
@@ -40,43 +49,32 @@ function Players() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadPlayers();
+  }, [loadPlayers]);
 
   const handleInputChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
+    setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleDateChange = (date) => {
-    setFormData({
-      ...formData,
-      birthdate: date
-    });
+  const resetForm = () => {
+    setFormData(EMPTY_FORM);
+    setEditingPlayer(null);
+    setShowForm(false);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!formData.alias.trim()) {
       alert('Alias is required');
       return;
     }
 
-    if (!formData.email.trim()) {
-      alert('Email is required');
-      return;
-    }
-
     if (!EMAIL_PATTERN.test(formData.email.trim())) {
       alert('Email must look like name@example.com');
-      return;
-    }
-
-    // Check for circular parent relationships
-    if (editingPlayer && formData.parent_ids.includes(editingPlayer.id)) {
-      alert('A player cannot be their own parent!');
       return;
     }
 
@@ -87,8 +85,10 @@ function Players() {
         first_name: formData.first_name.trim() || null,
         middle_name: formData.middle_name.trim() || null,
         last_name: formData.last_name.trim() || null,
-        birthdate: formData.birthdate ? formData.birthdate.toISOString().split('T')[0] : null,
-        parent_ids: formData.parent_ids || []
+        birthdate: toDateOnly(formData.birthdate),
+        parent_ids: formData.parent_ids,
+        child_ids: formData.child_ids,
+        partner_ids: formData.partner_ids,
       };
 
       if (editingPlayer) {
@@ -96,24 +96,12 @@ function Players() {
       } else {
         await playersApi.create(submitData);
       }
-      
-      // Reset form and reload
+
       resetForm();
       loadPlayers();
     } catch (error) {
       console.error('Error saving player:', error);
-      if (error.response?.status === 400) {
-        alert(error.response.data.detail || 'Alias already exists or invalid data');
-      } else if (error.response?.status === 422) {
-        // FastAPI validation error: detail is a list of {loc, msg, ...}
-        const detail = error.response.data?.detail;
-        const message = Array.isArray(detail)
-          ? detail.map(d => `${d.loc?.slice(-1)[0] ?? 'field'}: ${d.msg}`).join('\n')
-          : detail;
-        alert(message || 'Invalid data');
-      } else {
-        alert('Error saving player');
-      }
+      alert(errorMessage(error));
     }
   };
 
@@ -125,56 +113,38 @@ function Players() {
       first_name: player.first_name || '',
       middle_name: player.middle_name || '',
       last_name: player.last_name || '',
-      birthdate: player.birthdate ? new Date(player.birthdate) : null,
-      parent_ids: player.parent_ids || []
+      birthdate: player.birthdate ? parseDate(player.birthdate) : null,
+      parent_ids: player.parent_ids || [],
+      child_ids: player.child_ids || [],
+      partner_ids: player.partner_ids || [],
     });
     setShowForm(true);
   };
 
-  const resetForm = () => {
-    setFormData({
-      alias: '',
-      email: '',
-      first_name: '',
-      middle_name: '',
-      last_name: '',
-      birthdate: null,
-      parent_ids: []
-    });
-    setParentSearchTerm('');
-    setEditingPlayer(null);
-    setShowForm(false);
-  };
-
   const handleDelete = async (playerId, alias) => {
-    if (!window.confirm(`Delete player "${alias}"? This cannot be undone.`)) {
-      return;
-    }
+    if (!window.confirm(`Delete player "${alias}"? This cannot be undone.`)) return;
 
     try {
-      await runDestructive(adminPassword => playersApi.delete(playerId, adminPassword));
+      await runDestructive((adminPassword) => playersApi.delete(playerId, adminPassword));
       loadPlayers();
     } catch (error) {
       console.error('Error deleting player:', error);
       if (error.response?.status === 403) {
         alert('Wrong admin password. Player not deleted.');
       } else {
-        alert('Error deleting player. They may have game history.');
+        alert(error.response?.data?.detail || 'Error deleting player.');
       }
     }
   };
 
-  // Available parents (exclude self when editing)
-  const availableParents = players.filter(p => 
-    !editingPlayer || p.id !== editingPlayer.id
-  );
+  const aliasFor = (id) => players.find((p) => p.id === id)?.alias;
 
   if (loading) return <div className="loading">LOADING...</div>;
 
   return (
     <div>
       <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div className="toolbar">
           <h2>PLAYER REGISTRY</h2>
           <button onClick={() => { resetForm(); setShowForm(!showForm); }}>
             {showForm ? 'CANCEL' : '+ ADD PLAYER'}
@@ -182,10 +152,9 @@ function Players() {
         </div>
 
         {showForm && (
-          <div className="card" style={{ background: '#0a0e27', marginBottom: '30px' }}>
-            <h3 style={{ color: '#00ff00', marginBottom: '15px' }}>
-              {editingPlayer ? `EDIT PLAYER: ${editingPlayer.alias}` : 'NEW PLAYER'}
-            </h3>
+          <div className="card inset">
+            <h3>{editingPlayer ? `EDIT PLAYER: ${editingPlayer.alias}` : 'NEW PLAYER'}</h3>
+
             <form onSubmit={handleSubmit}>
               <label>ALIAS (REQUIRED) *</label>
               <input
@@ -237,9 +206,10 @@ function Players() {
               <label>BIRTHDATE (OPTIONAL, DD/MM/YYYY)</label>
               <DatePicker
                 selected={formData.birthdate}
-                onChange={handleDateChange}
+                onChange={(date) => setFormData({ ...formData, birthdate: date })}
                 dateFormat="dd/MM/yyyy"
-                placeholderText="Select date..."
+                placeholderText="dd/mm/yyyy"
+                calendarStartDay={1}
                 showYearDropdown
                 scrollableYearDropdown
                 yearDropdownItemNumber={100}
@@ -247,122 +217,15 @@ function Players() {
                 className="date-picker-input"
               />
 
-              <label>PARENTS (OPTIONAL)</label>
-              <div style={{ color: '#00ff00', opacity: 0.7, fontSize: '0.9rem', marginBottom: '10px' }}>
-                Not required — leave empty and create the player. Parents only
-                link a player into the family tree, and can be added later with EDIT.
-              </div>
-              {/* Search input for filtering */}
-              <div style={{ marginBottom: '10px' }}>
-                <input
-                  type="text"
-                  placeholder="Filter dropdown by name... (then select below)"
-                  value={parentSearchTerm}
-                  onChange={(e) => setParentSearchTerm(e.target.value)}
-                  style={{ marginBottom: '10px' }}
-                />
-              </div>
+              <RelationshipPicker
+                players={players}
+                value={formData}
+                onChange={(next) => setFormData({ ...formData, ...next })}
+                excludeId={editingPlayer?.id ?? null}
+              />
 
-              {/* Dropdown to select parents */}
-              <select
-                value=""
-                onChange={(e) => {
-                  const selectedId = parseInt(e.target.value);
-                  if (selectedId && !formData.parent_ids.includes(selectedId)) {
-                    setFormData({
-                      ...formData,
-                      parent_ids: [...formData.parent_ids, selectedId]
-                    });
-                    setParentSearchTerm(''); // Clear search after selection
-                  }
-                }}
-                style={{ width: '100%', marginBottom: '10px' }}
-              >
-                <option value="">
-                  {parentSearchTerm ? '-- Click to see filtered results --' : '-- Select a parent --'}
-                </option>
-                {availableParents
-                  .filter(p => 
-                    !formData.parent_ids.includes(p.id) &&
-                    (parentSearchTerm === '' ||
-                     p.alias.toLowerCase().includes(parentSearchTerm.toLowerCase()) ||
-                     (p.first_name && p.first_name.toLowerCase().includes(parentSearchTerm.toLowerCase())) ||
-                     (p.last_name && p.last_name.toLowerCase().includes(parentSearchTerm.toLowerCase())))
-                  )
-                  .map(player => (
-                    <option key={player.id} value={player.id}>
-                      {player.alias}
-                      {player.birthdate && ` (${new Date(player.birthdate).toLocaleDateString('en-GB')})`}
-                    </option>
-                  ))
-                }
-              </select>
-
-              {/* Selected parents list */}
-              <div style={{ 
-                border: '2px solid #00ff00', 
-                padding: '10px', 
-                margin: '10px 0',
-                background: '#16213e',
-                minHeight: '60px'
-              }}>
-                <div style={{ color: '#00ff00', marginBottom: '10px', fontSize: '0.9rem', opacity: 0.7 }}>
-                  Selected Parents (optional):
-                </div>
-                {formData.parent_ids.length === 0 ? (
-                  <div style={{ color: '#00ff00', opacity: 0.5, textAlign: 'center', padding: '10px' }}>
-                    No parents selected — that's fine, this field is optional
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                    {formData.parent_ids.map(parentId => {
-                      const parent = players.find(p => p.id === parentId);
-                      if (!parent) return null;
-                      return (
-                        <div 
-                          key={parentId}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            padding: '5px 10px',
-                            background: '#0a0e27',
-                            border: '1px solid #00ff00',
-                            borderRadius: '4px'
-                          }}
-                        >
-                          <span style={{ color: '#00ff00' }}>
-                            {parent.alias}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFormData({
-                                ...formData,
-                                parent_ids: formData.parent_ids.filter(id => id !== parentId)
-                              });
-                            }}
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              color: '#ff0000',
-                              cursor: 'pointer',
-                              padding: '0 5px',
-                              fontSize: '1.2rem',
-                              lineHeight: '1'
-                            }}
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-                <button type="submit">
+              <div className="button-row">
+                <button type="submit" className="primary">
                   {editingPlayer ? 'UPDATE PLAYER' : 'CREATE PLAYER'}
                 </button>
                 <button type="button" onClick={resetForm} className="danger">
@@ -385,59 +248,54 @@ function Players() {
                 <th>EMAIL</th>
                 <th>NAME</th>
                 <th>BIRTHDATE</th>
-                <th>PARENTS</th>
+                <th>RELATIONSHIPS</th>
+                <th>MATCHES</th>
                 <th>REGISTERED</th>
                 <th>ACTIONS</th>
               </tr>
             </thead>
             <tbody>
-              {players.map(player => {
-                const fullName = [
-                  player.first_name,
-                  player.middle_name,
-                  player.last_name
-                ].filter(Boolean).join(' ') || '-';
+              {players.map((player) => {
+                const fullName = [player.first_name, player.middle_name, player.last_name]
+                  .filter(Boolean).join(' ') || '-';
 
-                const parentNames = (player.parent_ids || [])
-                  .map(pid => players.find(p => p.id === pid)?.alias)
-                  .filter(Boolean)
+                const relationships = RELATIONSHIPS
+                  .flatMap(({ field, label }) =>
+                    (player[field] || [])
+                      .map(aliasFor)
+                      .filter(Boolean)
+                      .map((alias) => `${alias} (${label.toLowerCase()})`)
+                  )
                   .join(', ') || '-';
 
                 return (
                   <tr key={player.id}>
-                    <td style={{ color: '#00ff00', fontWeight: 'bold' }}>
-                      {player.alias}
-                    </td>
-                    <td style={{ fontSize: '0.9em' }}>
+                    <td className="text-key">{player.alias}</td>
+                    <td className="text-small">
                       {player.email || (
-                        <span style={{ color: '#ff0000' }} title="Registered before email was required — add one with EDIT">
+                        <span
+                          className="text-bad"
+                          title="Registered before email was required — add one with EDIT"
+                        >
                           MISSING
                         </span>
                       )}
                     </td>
                     <td>{fullName}</td>
                     <td>
-                      {player.birthdate 
-                        ? new Date(player.birthdate).toLocaleDateString('en-GB')
-                        : '-'
-                      }
+                      {player.birthdate ? formatDate(player.birthdate) : '-'}
                     </td>
-                    <td style={{ fontSize: '0.9em' }}>{parentNames}</td>
+                    <td className="text-small">{relationships}</td>
+                    <td>{player.games_played ?? 0}</td>
+                    <td>{formatDate(player.registration_date)}</td>
                     <td>
-                      {new Date(player.registration_date).toLocaleDateString('en-GB')}
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '5px' }}>
-                        <button
-                          onClick={() => handleEdit(player)}
-                          style={{ padding: '5px 15px', fontSize: '0.9rem' }}
-                        >
+                      <div className="button-row tight">
+                        <button className="small" onClick={() => handleEdit(player)}>
                           EDIT
                         </button>
                         <button
+                          className="small danger"
                           onClick={() => handleDelete(player.id, player.alias)}
-                          className="danger"
-                          style={{ padding: '5px 15px', fontSize: '0.9rem' }}
                         >
                           DELETE
                         </button>
@@ -450,8 +308,8 @@ function Players() {
           </table>
         )}
 
-        <div style={{ marginTop: '30px', padding: '15px', border: '1px solid #00ff00', background: 'rgba(0, 255, 0, 0.05)' }}>
-          <strong style={{ color: '#00ff00' }}>TOTAL PLAYERS:</strong> {players.length}
+        <div className="total-banner">
+          <strong>TOTAL PLAYERS:</strong> {players.length}
         </div>
       </div>
     </div>

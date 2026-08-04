@@ -1,7 +1,11 @@
 fastapi==0.124.4
 uvicorn[standard]==0.32.0
 SQLAlchemy==2.0.35
+alembic==1.13.3
 psycopg2-binary==2.9.9
 pydantic==2.9.0
 python-dotenv==1.0.1
 pytest==8.3.3
+# Test-only, but installed with the rest: tests run inside this image, and
+# FastAPI's TestClient is an httpx client underneath.
+httpx==0.27.2

@@ -1,68 +1,60 @@
 import yaml from 'js-yaml';
 
-let cachedSettings = null;
+/**
+ * Runtime settings, read once from public/settings.yaml.
+ *
+ * `settings.yaml` is the source of truth: there is deliberately no parallel
+ * table of defaults in here. There used to be one, and it duplicated every key
+ * in the yaml file with nothing keeping the two in step. What remains is the
+ * fallback argument each call site already passes to `getSetting`, which is a
+ * local guard rather than a second copy of the configuration.
+ *
+ * Ordering matters and is handled in index.js: `loadSettings()` is awaited
+ * before the first render, so `getSetting` is never called against an unloaded
+ * file. Before that fix nothing called `loadSettings` at all, so every lookup
+ * quietly returned its fallback and the whole yaml file — colours included —
+ * had never once been read.
+ */
+let settings = null;
 
 export const loadSettings = async () => {
-  if (cachedSettings) return cachedSettings;
-  
+  if (settings) return settings;
+
   try {
     const response = await fetch('/settings.yaml');
-    const yamlText = await response.text();
-    cachedSettings = yaml.load(yamlText);
-    return cachedSettings;
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    settings = yaml.load(await response.text()) || {};
   } catch (error) {
-    console.error('Failed to load settings.yaml, using defaults:', error);
-    return getDefaultSettings();
+    // Not fatal: every call site carries its own fallback, so the app still
+    // runs, it just runs unconfigured.
+    console.error('Failed to load settings.yaml, falling back to built-in values:', error);
+    settings = {};
   }
+
+  return settings;
 };
 
-export const getDefaultSettings = () => ({
-  display: {
-    default_display_nodes: 20,
-    font_size: "14px",
-    date_format: "dd/MM/yyyy"
-  },
-  tree: {
-    node_radius: 20,
-    // px between neighbouring nodes — read by FamilyTreeSelector
-    vertical_spacing: 80,
-    horizontal_spacing: 90,
-    zoom_enabled: true,
-    pan_enabled: true,
-    initial_depth: 3,
-    collapse_depth: 2
-  },
-  game: {
-    default_rounds: 10,
-    default_bet: 0
-  },
-  search: {
-    debounce_ms: 300,
-    min_chars: 0
-  },
-  colors: {
-    node_default: "#00ff00",
-    node_selected: "#ffff00",
-    node_hover: "#00ffff",
-    edge_color: "#00ff00",
-    background: "#0a0e27",
-    text: "#00ff00"
-  }
-});
+/** Walk a dotted path into a plain object, returning undefined if it runs out. */
+export const readPath = (source, path) => {
+  let value = source;
 
-export const getSetting = (path, defaultValue = null) => {
-  if (!cachedSettings) return defaultValue;
-  
-  const keys = path.split('.');
-  let value = cachedSettings;
-  
-  for (const key of keys) {
+  for (const key of path.split('.')) {
     if (value && typeof value === 'object' && key in value) {
       value = value[key];
     } else {
-      return defaultValue;
+      return undefined;
     }
   }
-  
+
   return value;
+};
+
+export const getSetting = (path, fallback = null) => {
+  const value = readPath(settings, path);
+  return value === undefined ? fallback : value;
+};
+
+/** Test seam: install a settings object without going through fetch. */
+export const __setSettingsForTests = (value) => {
+  settings = value;
 };
