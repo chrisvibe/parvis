@@ -154,8 +154,10 @@ east of Greenwich — Norway included — so a day-valued field goes through
 `toDateOnly()`, which reads the local calendar parts. Reading one back uses
 `parseDate()` for the mirror-image reason: a bare `"1990-05-12"` parses as UTC
 midnight, which is the 11th to anyone west of Greenwich. The frontend tests are
-pinned to `TZ=Europe/Oslo` (see the `test` script) because at UTC+0 neither
-mistake is visible.
+pinned to `TZ=Europe/Oslo` by `frontend/jest.globalSetup.js` because at UTC+0
+neither mistake is visible — a suite running at UTC would pass either way. The
+pin is asserted by a test of its own, so losing it fails the build rather than
+quietly making the rest of the date tests meaningless.
 
 ## Database Schema
 
@@ -302,7 +304,7 @@ cd frontend
 # Install dependencies
 npm install
 
-# Run the tests (pinned to TZ=Europe/Oslo by the script — see Dates)
+# Run the tests (pinned to TZ=Europe/Oslo however they are started — see Dates)
 CI=true npm test
 
 # Run development server

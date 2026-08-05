@@ -7,15 +7,28 @@ import {
   toDateOnly,
 } from './datetime';
 
-// The suite runs pinned to Europe/Oslo — see the `test` script in package.json,
-// which is where it has to be: TZ must be in the environment before Node starts,
-// because jsdom's Date reads it once and a later `process.env.TZ = ...` does not
-// reach it.
+// The suite runs pinned to Europe/Oslo by jest.globalSetup.js — see that file
+// for why it cannot be done from a setup file.
 //
 // The pin matters because timezone bugs in date handling are invisible in UTC. A
 // value that shifts by a couple of hours still lands on the same calendar day, so
 // a suite running at UTC+0 is testing the one offset where these functions cannot
 // be wrong — which is not the offset anybody plays this game in.
+
+describe('the timezone pin itself', () => {
+  // Without this, losing the pin costs nothing visible: every test below still
+  // passes at UTC, having stopped checking the thing it was written to check.
+  // This is the one test that fails when the suite stops being a real test.
+  test('the suite runs in Oslo, not wherever it happens to be', () => {
+    expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe('Europe/Oslo');
+  });
+
+  test('local time really is offset from UTC', () => {
+    // August in Oslo is UTC+2, so noon local is 10:00Z. At UTC+0 this reads
+    // 12:00Z and fails, which is the point.
+    expect(new Date(2026, 7, 4, 12, 0).toISOString()).toBe('2026-08-04T10:00:00.000Z');
+  });
+});
 
 describe('toLocalInputValue', () => {
   test('a date becomes the local wall clock, to the minute', () => {
