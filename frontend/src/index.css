@@ -121,6 +121,20 @@ body {
   flex-wrap: wrap;
 }
 
+/*
+  Log out sits in the same row as the destinations but is not one, so it is
+  dimmed and drops the glow — present when wanted, not competing with the
+  pages for attention. Hover restores full contrast like every other button.
+*/
+.button-logout {
+  opacity: 0.55;
+  box-shadow: none;
+}
+
+.button-logout:hover {
+  opacity: 1;
+}
+
 /* Buttons */
 button, .button {
   background: var(--panel-alt);

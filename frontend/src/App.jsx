@@ -6,7 +6,7 @@ import Players from './pages/Players';
 import About from './pages/About';
 import LoginGate from './components/LoginGate';
 import { getSetting } from './utils/settings';
-import { setUnauthorizedHandler } from './api';
+import { setUnauthorizedHandler, hasStoredPassword, logOut } from './api';
 
 function Navigation() {
   const location = useLocation();
@@ -38,6 +38,16 @@ function Navigation() {
         <Link to="/about" className={`button ${location.pathname === '/about' ? 'active' : ''}`}>
           ABOUT
         </Link>
+        {/*
+          Only shown to a browser that is actually holding a password. On an
+          open site there is nothing to log out of, and a button saying
+          otherwise would advertise a lock that does not exist.
+        */}
+        {hasStoredPassword() && (
+          <button type="button" className="button button-logout" onClick={logOut}>
+            LOG OUT
+          </button>
+        )}
       </div>
     </nav>
   );

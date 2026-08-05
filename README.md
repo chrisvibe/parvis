@@ -71,6 +71,12 @@ Leave both blank and the site is open and never prompts, exactly as it behaved
 before passwords existed — which is also how you retire this in favour of
 Cloudflare Access.
 
+The site password is remembered in the browser's local storage. A LOG OUT
+button in the nav forgets it, and appears only in a browser that is holding
+one, so an open site shows no such button. Logging out reloads rather than
+jumping to the login screen, which means blanking `PARVIS_PASSWORD` genuinely
+reopens the site instead of leaving people at a prompt nothing will satisfy.
+
 Setting only `PARVIS_ADMIN_PASSWORD` is a useful middle ground: the site stays
 open, but nothing can be deleted without the second password. The admin
 password is accepted anywhere the site password is.

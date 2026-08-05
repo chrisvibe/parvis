@@ -26,6 +26,29 @@ export const getStoredPassword = () => localStorage.getItem(PASSWORD_STORAGE_KEY
 export const storePassword = (password) => localStorage.setItem(PASSWORD_STORAGE_KEY, password);
 export const clearStoredPassword = () => localStorage.removeItem(PASSWORD_STORAGE_KEY);
 
+/**
+ * Whether this browser is holding a password.
+ *
+ * What the logout button keys off. It is deliberately about storage rather than
+ * about the server: with no password configured nothing is ever stored, so the
+ * button stays hidden and the UI does not imply a lock that is not there.
+ */
+export const hasStoredPassword = () => Boolean(getStoredPassword());
+
+/**
+ * Forget the password and start over.
+ *
+ * Clear and reload rather than raising the login screen directly, because the
+ * reload lets the server answer the question of whether a password is needed at
+ * all: if one is configured the first request 401s and the gate comes up on its
+ * own, and if the passwords have since been blanked the site simply opens. The
+ * direct route would strand whoever logged out of a site that no longer locks.
+ */
+export const logOut = () => {
+  clearStoredPassword();
+  window.location.reload();
+};
+
 // Set by App so a rejected password can raise the login screen from anywhere.
 let unauthorizedHandler = null;
 export const setUnauthorizedHandler = (handler) => { unauthorizedHandler = handler; };
