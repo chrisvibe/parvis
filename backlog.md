@@ -171,9 +171,19 @@ so it can be picked up cold.
       required show `MISSING` in the registry; editing any of them forces an
       email, so the fix is one pass through EDIT.
 
-- [ ] **No logout.** The site password is kept in local storage with no way to
-      clear it from the UI; it only clears on a 401. Worth a button if the
-      password is ever shared more widely.
+- [x] **No logout.** *(fixed 2026-08-05)* The site password was kept in local
+      storage with no way to clear it from the UI; it only cleared on a 401.
+      There is now a LOG OUT button in the nav, shown only to a browser that is
+      actually holding a password — on an open site there is nothing to log out
+      of, and a button saying otherwise would advertise a lock that is not
+      there.
+
+      It clears and reloads rather than raising the login screen directly, so
+      the server gets to answer whether a password is needed at all: with one
+      configured the first request 401s and the gate comes up by itself, and if
+      the passwords have since been blanked the site simply opens. Going
+      straight to the gate would strand whoever logged out of a site that no
+      longer locks.
 
 - [ ] **Passwords travel as plain headers.** Fine behind the HTTPS front door —
       but do not expose the API over plain HTTP. Moot if this is replaced by
@@ -227,11 +237,25 @@ so it can be picked up cold.
       player and are unaffected. Storing a first-bidder per round would fix the
       cosmetic part; nobody has asked.
 
-- [ ] Do the final standings need a rounds column?
-- [ ] Improve the visual theme.
-- [ ] **Decide what else belongs in the hall of fame.** The record list is a
-      starting point, chosen to have something to react to. Cheapest possible
-      change; wait for suggestions.
+- [x] Do the final standings need a rounds column? *(decided 2026-08-05: no)*
+      Every game in a standings table shares one `total_rounds`, so the column
+      would repeat the same number down the page.
+
+- [x] Improve the visual theme. *(closed 2026-08-05)* Too vague to act on. The
+      retro CRT theme exists and is coherent; there was no specific complaint
+      behind this line. Reopen it with the actual gripe if one turns up.
+
+- [x] **Decide what else belongs in the hall of fame.** *(decided 2026-08-05)*
+      One addition: **most tournaments won**. The roll of honour lists the
+      years but nothing said who owns the most of them, which is the one
+      question a hall of fame ought to answer directly. The other eight records
+      already cover scoring, volume, rate and failure, so the list stops there
+      rather than growing for its own sake.
+
+      It is counted by ALIAS, not player id, because a seeded year has a name
+      and no id — counting by id would split a person's wins across the arrival
+      of the app and hide anyone whose wins predate it. Draws break
+      alphabetically, purely so the same request gives the same answer twice.
 
 ## Testing
 

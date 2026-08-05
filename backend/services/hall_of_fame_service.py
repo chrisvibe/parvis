@@ -13,7 +13,7 @@ that counted an abandoned game would be a record nobody actually set.
 
 import json
 import os
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
@@ -63,12 +63,17 @@ class HallOfFameService:
         }
         per_game = self._per_player_game_figures()
 
+        # Computed once and shared: the roll of honour is also the source of
+        # the most-tournament-wins record, and counting the same thing twice
+        # invites the two disagreeing.
+        winners = self._tournament_winners(per_game, aliases)
+
         return HallOfFame(
             # `or`, not a getenv default: a variable present but blank — which
             # is how it ships in env_template — means "unset", not "no album".
             album_url=os.getenv("HALL_OF_FAME_ALBUM_URL") or DEFAULT_ALBUM_URL,
-            tournament_winners=self._tournament_winners(per_game, aliases),
-            records=self._records(per_game, aliases),
+            tournament_winners=winners,
+            records=self._records(per_game, aliases, winners),
         )
 
     # ------------------------------------------------------------------
@@ -202,7 +207,10 @@ class HallOfFameService:
     # ------------------------------------------------------------------
 
     def _records(
-        self, per_game: List[_PlayerGame], aliases: Dict[int, str]
+        self,
+        per_game: List[_PlayerGame],
+        aliases: Dict[int, str],
+        winners: List[TournamentWinner],
     ) -> List[HallOfFameRecord]:
         """
         The all-time bests, in the order they are shown.
@@ -218,16 +226,45 @@ class HallOfFameService:
 
         records: List[HallOfFameRecord] = []
 
-        def add(key, label, holder, value, display, detail=None):
+        def add(
+            key, label, holder, value, display, detail=None,
+            alias=None, empty_detail="No finished games yet",
+        ):
+            # A holder can be known by alias alone: a tournament seeded from
+            # before the app existed has a name and no player id.
+            known = holder is not None or alias is not None
             records.append(HallOfFameRecord(
                 key=key,
                 label=label,
                 player_id=holder,
-                player_alias=name(holder),
+                player_alias=alias if alias is not None else name(holder),
                 value=value,
-                display=display if holder is not None else "—",
-                detail=detail if holder is not None else "No finished games yet",
+                display=display if known else "—",
+                detail=detail if known else empty_detail,
             ))
+
+        # Most tournaments won. First because it is the one record this panel
+        # exists for — the roll of honour above lists the years, but nothing in
+        # it says who has the most.
+        #
+        # Counted by ALIAS rather than player id: seeded years carry a name and
+        # no id, so counting by id would drop a player's pre-app wins and split
+        # one person's tally in two. The tie-break is alphabetical purely so
+        # that a draw produces the same answer on every request.
+        by_alias = Counter(winner.player_alias for winner in winners)
+        champion = min(
+            by_alias.items(), key=lambda item: (-item[1], item[0]), default=None
+        )
+        ids_by_alias = {alias: pid for pid, alias in aliases.items()}
+        add(
+            "most_tournament_wins", "Most tournaments won",
+            ids_by_alias.get(champion[0]) if champion else None,
+            float(champion[1]) if champion else None,
+            f"{champion[1]} {'win' if champion and champion[1] == 1 else 'wins'}"
+            if champion else "—",
+            alias=champion[0] if champion else None,
+            empty_detail="No tournament has been played yet",
+        )
 
         # Highest successful bet ever made.
         with_bets = [f for f in per_game if f.highest_successful_bet is not None]

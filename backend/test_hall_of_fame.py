@@ -236,6 +236,70 @@ class TestRecords:
         assert all(r.display == "—" and r.player_alias is None for r in records)
 
 
+class TestMostTournamentsWon:
+    """
+    The record this panel exists for: the roll of honour lists the years, this
+    says who owns the most of them. Counted off that same roll so the two cannot
+    disagree, and by alias rather than player id — see below.
+    """
+
+    def test_a_draw_is_broken_the_same_way_every_time(self, hof):
+        """ana took 2024 and ben took 2025, so the tie-break decides it."""
+        record = _records(HallOfFameService(hof).get_hall_of_fame())["most_tournament_wins"]
+
+        assert record.player_alias == "ana"
+        assert record.value == 1
+        assert record.display == "1 win"
+
+    def test_winning_twice_beats_a_draw(self, hof):
+        _game(hof, 4, year=2026, game_type="tournament")
+        _played(hof, 4, 2, [(6, True)])
+        hof.commit()
+
+        record = _records(HallOfFameService(hof).get_hall_of_fame())["most_tournament_wins"]
+
+        assert record.player_alias == "ben"
+        assert record.display == "2 wins"
+
+    def test_a_seeded_year_counts_toward_the_tally(self, hof, tmp_path, monkeypatch):
+        """
+        Counting by player id would drop this year, because a seeded winner has
+        a name and no id — splitting one person's wins across the arrival of the
+        app, and hiding whoever won most before it existed.
+        """
+        seed = tmp_path / "seed.json"
+        seed.write_text(json.dumps([{"year": 2001, "player_alias": "ana"}]))
+        monkeypatch.setenv("HALL_OF_FAME_SEED", str(seed))
+
+        record = _records(HallOfFameService(hof).get_hall_of_fame())["most_tournament_wins"]
+
+        assert record.player_alias == "ana"
+        assert record.value == 2
+
+    def test_a_champion_from_before_the_app_needs_no_player_row(self, hof, tmp_path, monkeypatch):
+        seed = tmp_path / "seed.json"
+        seed.write_text(json.dumps([
+            {"year": 1999, "player_alias": "grandpa"},
+            {"year": 2000, "player_alias": "grandpa"},
+            {"year": 2001, "player_alias": "grandpa"},
+        ]))
+        monkeypatch.setenv("HALL_OF_FAME_SEED", str(seed))
+
+        record = _records(HallOfFameService(hof).get_hall_of_fame())["most_tournament_wins"]
+
+        assert record.player_alias == "grandpa"
+        assert record.player_id is None
+        assert record.value == 3
+
+    def test_no_tournament_yet_says_so_rather_than_reporting_nobody(self, db, monkeypatch):
+        monkeypatch.setenv("HALL_OF_FAME_SEED", "/nonexistent/seed.json")
+
+        record = _records(HallOfFameService(db).get_hall_of_fame())["most_tournament_wins"]
+
+        assert record.display == "—"
+        assert record.detail == "No tournament has been played yet"
+
+
 class TestAlbumLink:
 
     def test_it_has_a_working_default(self, hof, monkeypatch):
