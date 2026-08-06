@@ -112,6 +112,20 @@ class TestTournamentWinners:
 
         assert HallOfFameService(db).get_hall_of_fame().tournament_winners == []
 
+    def test_somebody_taken_out_of_a_tournament_leaves_no_trace_in_it(self, hof):
+        """
+        ana is top of the 2024 table on 25. Removing her from that game deletes
+        what she bet in it, so the year is decided among the players who are
+        left — the game reads as the one those players played.
+        """
+        hof.query(Round).filter_by(game_id=1, player_id=1).delete()
+        hof.query(GamePlayer).filter_by(game_id=1, player_id=1).delete()
+        hof.commit()
+
+        winners = {w.year: w.player_alias
+                   for w in HallOfFameService(hof).get_hall_of_fame().tournament_winners}
+        assert winners[2024] == "ben"
+
 
 class TestSeededWinners:
     """Tournaments from before the app existed cannot be computed."""

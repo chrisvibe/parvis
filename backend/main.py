@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import os
@@ -10,7 +10,13 @@ import os
 # Local imports
 import models as schemas
 from database import get_db, init_db, Game
-from services import GameService, HallOfFameService, PlayerService, RoundService
+from services import (
+    GameCsvService,
+    GameService,
+    HallOfFameService,
+    PlayerService,
+    RoundService,
+)
 from auth import (
     ADMIN_PASSWORD_HEADER,
     PASSWORD_HEADER,
@@ -156,6 +162,81 @@ def create_game(game_data: schemas.GameCreate, db: Session = Depends(get_db)):
     return service.create_game(game_data)
 
 
+@app.post("/games/import")
+async def import_game_csv(
+    request: Request,
+    strict: bool = Query(False),
+    dry_run: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    """
+    Create a game from a CSV of the table it was played on.
+
+    The body is the file itself, not JSON:
+
+        curl -X POST --data-binary @night.csv \\
+             -H 'Content-Type: text/csv' .../games/import
+
+    The format is described at the top of backend/game_csv.py. Players are
+    matched to the roster by alias and never created, so an unrecognised name
+    stops the import.
+
+    A file that cannot be read is refused. A file that reads but does not add
+    up — a round where the winning bids claim more tricks than were dealt, a
+    column that disagrees with the total written under it — is imported anyway
+    and carries those doubts on the game, where the game screen shows them over
+    the matrix until somebody has checked it against the paper. Refusing it
+    would leave the one person who can settle the question with nothing to
+    correct.
+
+    strict turns that off and refuses instead, for a caller that wants a
+    pass/fail answer rather than a game.
+
+    dry_run parses, checks and reports without writing anything, which is the
+    way to look at a transcription before committing it.
+
+    The game arrives unfinished whatever the file contains: somebody presses
+    FINISH once they have compared it with the paper.
+    """
+    # utf-8-sig rather than utf-8: a file that has been through a spreadsheet
+    # arrives with a byte-order mark, which would otherwise become part of the
+    # first cell and stop the header being recognised.
+    text = (await request.body()).decode("utf-8-sig", errors="replace")
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="The request body was empty.")
+
+    return GameCsvService(db).import_game(text, strict=strict, dry_run=dry_run)
+
+
+@app.get("/games/{game_id}/export.csv", response_class=PlainTextResponse)
+def export_game_csv(game_id: int, db: Session = Depends(get_db)):
+    """
+    Write a game out as the table it would be drawn as on paper.
+
+    Round-trips: what this returns can be posted back to /games/import and
+    produces the same game again, which is also how the format is tested.
+    """
+    text, filename = GameCsvService(db).export_game(game_id)
+    return PlainTextResponse(
+        content=text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/games/{game_id}/acknowledge-import", response_model=schemas.Game)
+def acknowledge_import(game_id: int, db: Session = Depends(get_db)):
+    """
+    Say that a transcribed game has been checked against the paper.
+
+    Clears the warnings it was imported with, which is what takes the banner off
+    the matrix. Its own action rather than a side effect of editing the game,
+    because the warnings are a question only somebody holding the sheet can
+    answer.
+    """
+    return GameService(db).acknowledge_import(game_id)
+
+
 @app.post("/games/{game_id}/finish")
 def finish_game(game_id: int, db: Session = Depends(get_db)):
     """Mark a game as finished."""
@@ -213,6 +294,19 @@ def set_player_order(
     service = GameService(db)
     player_ids = service.set_player_order(game_id, order.player_ids)
     return {"message": "Player order updated", "player_ids": player_ids}
+
+
+@app.delete("/games/{game_id}/players/{player_id}")
+def remove_player_from_game(game_id: int, player_id: int, db: Session = Depends(get_db)):
+    """
+    Take a player out of a game as though they had never been in it.
+
+    Everything they bet in this game is deleted and the seats close up, so the
+    priority rotation is renumbered for the players who are left. Refused if it
+    would leave the game with fewer than two.
+    """
+    service = GameService(db)
+    return service.remove_player(game_id, player_id)
 
 
 @app.post("/games/{game_id}/adjust-rounds")

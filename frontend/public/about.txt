@@ -4,20 +4,45 @@ Parvis is a betting game tracker designed to record and analyze games played amo
 
 ## How to Play
 
-Players make bets each round. A successful bet scores 10 points plus the bet amount. A failed bet scores 0 points.
+Easy to learn, hard to stop. Here is the whole game.
 
-The player with the highest total score after all rounds wins!
+### The rounds
 
-## Features
+A game is a series of rounds, and every round is one card longer than the last. Round 1 deals a single card to everybody, round 2 deals two, and so on. A round dealt N cards has exactly N tricks in it, so there are N to go around and no more.
 
-- **Family Tree Player Selection**: Visualize relationships and select players easily
-- **Game Matrix**: Enter bets and results in a spreadsheet-like interface
-- **Priority System**: The diagonal indicates who gets the tiebreaker each round
-- **Statistics**: Track win rates, betting patterns, and performance over time
-- **Retro Terminal Aesthetic**: Classic green phosphor CRT styling
+### Betting
 
-## Created By
+Once you have looked at your hand, and before anybody plays a card, everyone says how many tricks they expect to take. In round 1 that is 0 or 1. In round 7 it is anything from 0 to 7.
 
-This application was built to preserve game history and make friendly competition more engaging.
+Betting nothing is a real bet, and often a good one. What the bets add up to does not have to match the number of tricks, and usually will not — somebody is going to be disappointed, and working out who is most of the fun.
 
-Enjoy tracking your games! 🎮
+### Playing the cards
+
+Whoever bet highest leads the first card of the round. If two people bet the same, the one nearest the priority mark leads: nearness is counted rightwards from the mark, so the first of them you reach going right is the one who starts. The mark moves one seat along each round, so the advantage travels round the table rather than living with one person.
+
+Then everyone plays a card, in turn, and the rules for what you may play are short:
+
+- If you have a card in the suit that was led, you must play one.
+- If you have none of it, play whatever you like.
+- Only cards in the suit that was led can win the trick. Anything else is thrown away, however grand it looks.
+- Ace is high and 2 is low.
+
+The highest card in the led suit takes the trick, and whoever takes it leads the next one. Carry on until the hands are empty, then count up what everybody actually took.
+
+### Scoring
+
+You score if you took exactly what you bet. Not one more, not one fewer.
+
+- Made it: 10 points plus your bet. Betting 0 and taking nothing is worth 10. Betting 5 and taking 5 is worth 15.
+- Missed it: nothing at all. Being one over costs you exactly as much as being four under.
+
+This is why, on a paper score sheet, a bet that comes off gets a 1 written in front of it — a bet of 5 becomes 15, which is the score — and a bet that goes down is simply crossed out and left as it was.
+
+The player with the highest total after the final round wins.
+
+### The short version
+
+- Round N deals N cards each, and has N tricks.
+- Bet how many you will take, from 0 to N.
+- Follow suit if you can. Only the led suit wins. Ace high, 2 low.
+- Exactly right scores 10 plus your bet. Anything else scores nothing.

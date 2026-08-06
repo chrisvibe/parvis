@@ -150,10 +150,11 @@ so it can be picked up cold.
       and `test_api.py`. Frontend: `familyTree`, `datetime`, `chartData`,
       `playerStats` and `theme`.
 
-      **Unrun.** The container this was written in has no `python3` and no
-      `frontend/node_modules`, so neither suite has been executed. First job on
-      a machine that can: `docker compose exec backend pytest -q` and
-      `CI=true npm test`.
+      **Run at last** *(2026-08-06)*, on the deploy box, where the containers
+      have what the authoring container lacks: 219 backend tests and 129
+      frontend tests across 9 suites, all passing. Writing tests you cannot run
+      is writing tests you have to trust, and one of them was wrong — see the
+      note under the eviction entry.
 
 - [x] **No migration tool.** *(added 2026-08-04)* Alembic owns the schema:
       `backend/alembic.ini`, `backend/migrations/`, baseline `0001_baseline`.
@@ -162,14 +163,110 @@ so it can be picked up cold.
       stamp — after which `create_all` never runs again. See the README's
       "Schema changes".
 
-      **Verify against a restored dump before this reaches the live database.**
-      The adoption path has not been executed anywhere.
+      **Executed on the live database 2026-08-06**, after a `pg_dump` taken
+      first. The adoption had in fact already happened on an earlier restart —
+      the database was found stamped `0002_game_player_seat` with all seven
+      tables in place, so the step that had never been run had quietly run
+      itself the last time the backend came up. Only `0003` was outstanding, and
+      it adds one nullable column. The warning above is left here rather than
+      deleted because it was the right warning to have written.
 
 ## Follow-ups from recent changes
 
 - [ ] **Backfill four legacy emails.** Players registered before email was
       required show `MISSING` in the registry; editing any of them forces an
       email, so the fix is one pass through EDIT.
+
+- [ ] **Wire the photograph up to the importer.** *(added 2026-08-06)* Chris's,
+      and deliberately later. Everything downstream of the transcription is
+      done: `backend/transcription_prompt.md` is the instruction to hand a
+      model, `POST /games/import` takes what it produces, and a file whose
+      arithmetic does not hold arrives on screen with its doubts attached
+      rather than being refused. What is missing is the part in between —
+      something that takes a photo of the sheet, runs the prompt against it,
+      and posts the result.
+
+      Worth deciding before building it: whether that runs on the phone that
+      took the photo or on the server, and whether the frontend grows an upload
+      button or the whole thing stays a POST. The importer does not care, which
+      is the point of having drawn the line where it is drawn.
+
+- [x] **Import and export a game as a CSV.** *(added 2026-08-05)* For nights
+      played on paper. `POST /games/import` takes the file as the request body,
+      `GET /games/{id}/export.csv` writes the same format back, and what one
+      writes the other reads. There is no upload button yet — the import is a
+      POST — but an imported game does have a frontend now, since the warnings
+      have to reach whoever can answer them.
+
+      The format is a row per round and a column per player, which is the shape
+      of the paper — a transcription is a copy rather than a translation. It
+      took two passes to get the square right. The first draft came from a
+      machine-vision prompt and used two columns per player (`Name_bets`,
+      `Name_mask`); that was halved to one, because every extra column is
+      another chance for a row to shift by one and a shifted row is a valid
+      file describing the wrong game. Then Chris pointed out that the paper
+      needs no mask at all: a made bid gets a 1 written in front of it, so the
+      square already holds the score, and a struck bid keeps its own number. So
+      a square is transcribed as it stands — `15` is a made bid of five, `5-` a
+      struck one, `10` a made bid of nothing — and nobody has to decide what a
+      mark meant. The old paired layout is still read on the way in so existing
+      transcriptions keep working; it is never written.
+
+      **Empty is not zero.** Zero is a real bid worth ten if it holds; empty is
+      a round nobody filled in. The first draft wrote both as `0`, which made a
+      half-finished sheet unimportable and an unreadable row indistinguishable
+      from four players all bidding nothing.
+
+      Made squares hold `10..10+N` and struck ones hold `0..N`, so from round
+      ten the two overlap — in a ten-round game exactly one value, a bare `10`,
+      which is a made bid of nothing or a struck bid of ten. Read as made,
+      since bidding everything is rare, and the totals row settles it: a column
+      that adds up is a column that was read right.
+
+      Three checks run that the transcriber cannot run on itself: a square's
+      number and its strike must agree, the made bids in round N cannot exceed
+      the N tricks it deals, and the totals row must match the rounds. When a
+      column is out, the round whose square would account for the difference is
+      named. All of it matters because the sample transcription that prompted
+      this **passed its own totals check and was still impossible** — rounds 5
+      and 10 awarded more tricks than were dealt.
+
+      Refusing those files was the first answer and the wrong one. None of the
+      three can be settled without looking at the paper, so a refusal leaves the
+      person holding the paper with nothing on screen to correct. A file that
+      reads is now imported with its doubts stored on the game
+      (`games.import_warnings`, migration 0003) and shown in a banner over the
+      matrix; **CHECKED AGAINST THE PAPER** clears it through
+      `POST /games/{id}/acknowledge-import`. A file that cannot be *read* is
+      still refused — there is nothing to load. `?strict=true` brings the old
+      behaviour back for a caller that would rather fix the file, and
+      `?dry_run=true` looks without writing.
+
+      `backend/transcription_prompt.md` is the instruction for whatever model
+      does the transcribing, written for an agent with no context. It describes
+      a grid of numbers and states the four checks as arithmetic, never
+      mentioning cards — Chris's call, and the right one: a transcriber that
+      knows the game is a transcriber that will help the numbers along. Its
+      standing order is to copy digits and report what does not add up, never
+      to repair it.
+
+      Aliases are matched against the roster and players are never created: a
+      player invented from a misread name is permanent, silent, and reaches the
+      hall of fame. Imported games arrive unfinished whatever the file says, so
+      a human presses FINISH after comparing it with the paper.
+
+- [x] **Write the actual rules on the About page.** *(added 2026-08-05)* How to
+      Play was three sentences about scoring and nothing about the game: no
+      deal, no bidding, no following suit, no idea that round N has N tricks in
+      it. Somebody arriving at the site could not have played from it.
+
+      It now covers the deal growing a card a round, bidding 0 to N after
+      looking at your hand, the highest bidder leading and ties going to the
+      player nearest the priority mark counting rightwards, following suit,
+      only the led suit winning, ace high and 2 low, and exact-or-nothing
+      scoring — plus a four-line short version at the end. It also explains why
+      a made bid gets a 1 written in front of it on paper, which is the same
+      fact the CSV format is built on.
 
 - [x] **No logout.** *(fixed 2026-08-05)* The site password was kept in local
       storage with no way to clear it from the UI; it only cleared on a 401.
@@ -184,6 +281,65 @@ so it can be picked up cold.
       the passwords have since been blanked the site simply opens. Going
       straight to the gate would strand whoever logged out of a site that no
       longer locks.
+
+- [x] **ABOUT listed its own features.** *(removed 2026-08-05)* A bullet list of
+      what the app does, and a paragraph about why it was built, on a page read
+      by the six people who play the game. Gone; ABOUT is the rules now.
+
+- [x] **Columns resized while bets were being typed.** *(fixed 2026-08-05)* The
+      table sized itself by its contents, so a cell going from `-` to `10`
+      widened its column and shunted every other one along — on each bet, under
+      the cursor. The matrix is now `table-layout: fixed` with a `colgroup`:
+      the round column has a width, the player columns split what is left
+      equally, and nothing in a cell can change either. `min-width` on the table
+      is the floor past which the wrapper scrolls sideways instead of squeezing.
+
+- [x] **The game matrix could not be filled in from the keyboard.**
+      *(added 2026-08-05)* Every bet was a click and then a keystroke, which is
+      the wrong shape for the one job done while everybody sits waiting. It now
+      behaves like a spreadsheet: arrows move, Tab and Enter carry on to the
+      next player and wrap to the next round, typing a digit opens the editor on
+      that digit, Escape abandons. In MARK RESULTS, Enter and Space flip the
+      cell rather than editing it — the two modes are different jobs.
+
+      Enter goes **right**, not down: bidding goes round the table in seat
+      order, and the columns are the seats. Tab at the last cell is left to the
+      browser so the grid can always be tabbed out of.
+
+      The movement is `utils/gridNavigation.js`, tested on its own because the
+      whole bug surface is the behaviour at an edge, and that is invisible in a
+      browser until somebody is mid-game.
+
+- [x] **Evict a player from a game in progress.** *(added 2026-08-05)* Somebody
+      could not finish a game and there was no way to say so.
+
+      `DELETE /games/{id}/players/{player_id}` takes them out as though they had
+      never been in it: their rounds in that game go with them, and the seats
+      close up behind them. The game is then recorded as the one that was
+      actually played, by the people who played it through. 🚪 on the column
+      header, behind a confirm, and refused if it would leave fewer than two.
+
+      **The closing-up is the point, not tidiness.** Round N belongs to seat
+      N % players, so a game that is now four-handed has to be numbered
+      four-handed or the priority highlight points at the wrong person for every
+      round of it. That includes rounds already entered — which is correct,
+      since those rounds were four-handed too.
+
+      An earlier draft of this kept the player with a `withdrawn_after_round`
+      column, an empty-seat rendering, a tournament disqualification and a
+      migration. Deleting outright is a great deal simpler and it makes the
+      rotation right for free. The cost, accepted deliberately: the rounds that
+      player did play are gone, so a five-player night is recorded as a
+      four-player game.
+
+      **One of its tests was wrong and said so the first time it was run**
+      *(2026-08-06)*. `test_nobody_elses_score_is_touched` had a player bidding
+      three in round one — a round that deals one card, so the bid is illegal
+      and the API rightly refused it, leaving the score it asserted about at
+      zero. Written in a container that could not run it, it looked fine for a
+      day. The same mistake in the same shape had already been made twice in the
+      CSV fixtures: a round is not a free-for-all, and `bid <= round` is a rule
+      the tests have to obey too.
 
 - [ ] **Passwords travel as plain headers.** Fine behind the HTTPS front door —
       but do not expose the API over plain HTTP. Moot if this is replaced by
@@ -278,7 +434,13 @@ so it can be picked up cold.
   image build time, so a bind-mounted source change is not enough:
   `docker compose up -d --build backend`. The 2026-08-04 work added `alembic`
   and `httpx`, so that deploy is a rebuild, not a reload.
-- **The first boot after that deploy migrates the database.** It creates
-  `player_partners`, stamps `0001_baseline`, and from then on `alembic upgrade
-  head` is what changes the schema. Take a backup first and watch the backend
-  log — this path has never been executed anywhere.
+- **The database migrates itself on boot.** `init_db()` runs `alembic upgrade
+  head`, so a deploy that adds a migration needs no separate command — the
+  restart is the migration. Take a backup first anyway; it costs seconds and the
+  schema is the only thing here that cannot be re-copied from git.
+- **Check `alembic current` before assuming what is pending.** On the
+  2026-08-06 deploy the live database turned out to be two migrations further
+  along than these notes claimed, having adopted and stamped itself on an
+  earlier restart. The notes were stale, not the database. `docker exec
+  parvis-db psql -U parvis -d parvis -c "select * from alembic_version;"`
+  settles it in one command, and disagrees with a guess more often than not.

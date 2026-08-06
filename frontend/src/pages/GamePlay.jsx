@@ -37,6 +37,8 @@ function GamePlay() {
     adjustRounds,
     editMetadata,
     reorderPlayers,
+    evictPlayer,
+    acknowledgeImport,
   } = useGameActions(activeGame, loadGameData, clearGame, navigate, setGameStats);
 
   const chartData = useChartData(gameStats, rounds, activeGame);
@@ -116,6 +118,8 @@ function GamePlay() {
           onDeleteGame={deleteGame}
           onFinishGame={finishGame}
           onReorderPlayers={reorderPlayers}
+          onEvictPlayer={evictPlayer}
+          onAcknowledgeImport={acknowledgeImport}
         />
       )}
     </div>

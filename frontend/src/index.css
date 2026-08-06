@@ -547,6 +547,50 @@ tr:hover {
   vertical-align: middle;
 }
 
+/*
+ * What a game read off a photographed score sheet arrived unsure about.
+ *
+ * Sits above the matrix because it is a reason to look at the matrix. Amber
+ * rather than red: nothing has gone wrong, some squares are worth a second
+ * look, and colouring it like a failure would train people to dismiss it.
+ */
+.import-warnings {
+  margin: 20px 0;
+  padding: 15px 20px;
+  border: 2px solid var(--attention);
+  background: var(--panel-alt);
+}
+
+.import-warnings h3 {
+  margin-bottom: 10px;
+  color: var(--attention);
+  font-size: 1rem;
+  letter-spacing: 0.05em;
+}
+
+.import-warnings ul {
+  margin: 0 0 12px 20px;
+}
+
+.import-warnings li {
+  margin-bottom: 4px;
+  /* The warnings name a round and a player and then explain themselves, so
+     they are sentences rather than labels and need to wrap as sentences. */
+  line-height: 1.5;
+}
+
+.import-warnings p {
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.import-warnings button {
+  padding: 8px 16px;
+  border-color: var(--attention);
+  color: var(--attention);
+}
+
 /* Centred "nothing here yet" note. */
 .empty-note {
   margin-top: 20px;

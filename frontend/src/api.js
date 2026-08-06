@@ -133,6 +133,14 @@ export const gamesApi = {
   // the seats it left out would have no defined home.
   setPlayerOrder: (gameId, playerIds) =>
     api.put(`/games/${gameId}/player-order`, { player_ids: playerIds }),
+  // Takes a player out of one game as though they had never been in it: their
+  // rounds go too and the seats close up behind them. Nothing to do with the
+  // player themselves, who stays on the roster.
+  removePlayer: (gameId, playerId) =>
+    api.delete(`/games/${gameId}/players/${playerId}`),
+  // Clears the doubts a game read off a photographed score sheet arrived with.
+  // Somebody has compared it against the paper and says it is right.
+  acknowledgeImport: (gameId) => api.post(`/games/${gameId}/acknowledge-import`),
   // Omitted params are left alone by the backend, so a caller can send only
   // what it means to change.
   updateMetadata: (gameId, data) => api.put(`/games/${gameId}/metadata`, null, {

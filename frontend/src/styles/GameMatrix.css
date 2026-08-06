@@ -35,10 +35,36 @@
   background: var(--panel);
 }
 
+/* ---------------------------------------------------------------------------
+   Column widths
+
+   Fixed, not measured. A browser sizing a table by its contents re-measures on
+   every change, so a cell going from "-" to "10" widened its column and pushed
+   every other one along — which happened on each bet as it was typed, under the
+   cursor. table-layout:fixed takes the widths from the colgroup and stops
+   looking at the contents, so the table only changes shape when the game does.
+
+   The round column is the only one given a width; under the fixed algorithm the
+   rest share what is left, equally, which is what fills the screen. min-width
+   is the floor for a table with a lot of players in it — past that the wrapper
+   scrolls sideways rather than squeezing the columns down to nothing.
+   --------------------------------------------------------------------------- */
+
 .game-matrix {
+  --round-column: 4.5rem;
+  --min-player-column: 3.75rem;
+
   width: 100%;
+  table-layout: fixed;
+  min-width: calc(
+    var(--round-column) + var(--player-columns, 1) * var(--min-player-column)
+  );
   border-collapse: collapse;
   font-family: 'Courier New', monospace;
+}
+
+.game-matrix col.round-col {
+  width: var(--round-column);
 }
 
 .game-matrix th {
@@ -85,8 +111,13 @@
   outline-offset: -4px;
 }
 
+/* The column is as wide as the screen allows rather than as wide as the name,
+   so a long alias is clipped. The header carries it as a tooltip. */
 .game-matrix th .player-name {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .game-matrix th .seat-controls {
@@ -122,11 +153,24 @@
   cursor: default;
 }
 
+/* Taking somebody out of the game is a different kind of act from shuffling the
+   columns about, so it drops the border rather than reading as a third arrow. */
+.game-matrix th .seat-controls button.seat-exit {
+  border-color: transparent;
+  font-size: 0.7rem;
+}
+
+.game-matrix th .seat-controls button.seat-exit:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--fg);
+}
+
+/* No min-width here: the columns are sized by the colgroup above, and a floor
+   on the cells would only be another thing for the contents to argue with. */
 .game-matrix td {
   padding: 0;
   border: 1px solid var(--fg);
   text-align: center;
-  min-width: 60px;
   height: 40px;
 }
 
@@ -169,6 +213,22 @@
 .matrix-cell:hover {
   opacity: 0.8;
   box-shadow: inset 0 0 10px rgba(0, 255, 0, 0.3);
+}
+
+/*
+ * Where the keyboard is.
+ *
+ * Both selectors on purpose. The class is what this component believes, and
+ * :focus is what the browser knows — they agree in normal use, and when they do
+ * not it is better to show two boxes than none, because a cursor you cannot see
+ * is a cursor you type bets into by accident. Yellow because that is already
+ * the colour of "you are here" on the round labels, and drawn inside the cell
+ * so it does not shift anything by a pixel.
+ */
+.matrix-cell.focused,
+.matrix-cell:focus {
+  outline: 3px solid var(--warn);
+  outline-offset: -3px;
 }
 
 .matrix-cell.priority {
@@ -249,9 +309,15 @@
     text-align: center;
   }
 
+  /* Narrower floors on a phone, so a four-player game still fits across the
+     screen instead of scrolling from the first round. */
+  .game-matrix {
+    --round-column: 3rem;
+    --min-player-column: 3rem;
+  }
+
   .game-matrix th,
   .game-matrix td {
-    min-width: 50px;
     font-size: 0.9rem;
   }
 }

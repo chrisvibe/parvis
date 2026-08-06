@@ -104,7 +104,11 @@ class Game(BaseModel):
     current_round: int
     is_active: bool
     is_valid: bool
-    
+    # Set only on a game read in from a transcribed score sheet, and only when
+    # the checks found something. One doubt per line; the game screen shows them
+    # over the matrix until somebody clears them.
+    import_warnings: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 class RoundCreate(BaseModel):

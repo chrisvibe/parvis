@@ -9,6 +9,12 @@ A retro-styled web application for tracking Parvis betting games with live stati
 - Choose the order of play: reorder the list when setting a game up, and drag
   the matrix columns (or use the ◀ ▶ arrows) to change it during one
 - Track bets and results round-by-round
+- Enter a round from the keyboard like a spreadsheet: arrows move, Tab and
+  Enter go on to the next player, typing a digit starts the bet. In MARK
+  RESULTS, Enter flips the cell it is standing on
+- Take somebody out of a game they could not finish (🚪 on their column). The
+  game is then recorded as the one that was played, by the people who played it
+  through: their bets go with them and the rotation renumbers
 - Live score progression with animated line chart
 - Real-time leaderboard updates
 - Automatic score calculation (10 + bet for successful bets)
@@ -165,6 +171,99 @@ neither mistake is visible — a suite running at UTC would pass either way. The
 pin is asserted by a test of its own, so losing it fails the build rather than
 quietly making the rest of the date tests meaningless.
 
+## Games on paper
+
+Some nights the table gets drawn on a sheet of paper instead. Rather than typing
+it back in cell by cell, a game can be imported as a CSV of the same shape:
+
+```
+# parvis game
+#date: 2026-07-14
+#location: hytta
+Round,Carina,Rasmus,Elise,Rosanna
+1,10,1-,10,0-
+2,0-,12,2-,0-
+Total,40,42,71,35
+```
+
+One row per round, one column per player, in seating order. A square holds **the
+number standing in it on the paper**, which is not quite the bid: a bid that is
+made gets a 1 written in front of it, so bidding 5 and making it leaves `15`
+behind — the score — while a bid that goes down is struck through and keeps its
+own number. So `15` is a made bid of five, `5-` is a struck one, and `10` is a
+made bid of nothing.
+
+Writing what is in the square rather than what it means is the point. The
+transcription is then a copy of digits with no step where anyone decides what a
+mark meant, and the totals row along the bottom is a plain sum of the column —
+the same addition the players did by hand, checkable against the same numbers.
+
+**Empty is not zero.** Zero is a real bid worth ten points if it holds; empty is
+a round nobody has filled in. That distinction is what lets a half-finished
+sheet be imported at all.
+
+The strike is carried as a trailing marker (`-`, `x`, `/`, `*`) and is mostly
+redundant, which is what makes it useful: a struck square should hold a bare bid
+and an unstruck one should hold a score, so the two disagreeing catches a strike
+that was hallucinated or missed. Redundant, but not always — made squares hold
+`10..10+N` and struck ones hold `0..N`, so from round ten the ranges overlap. In
+a ten-round game that is exactly one value: a bare `10`, which is a made bid of
+nothing or a struck bid of ten. It is read as made, since bidding everything is
+rare, and the totals row settles it either way.
+
+The `#key: value` lines are all optional — `date`, `location`, `type`, `notes`,
+`rounds` (when the game was planned longer than the table reaches). Anything
+missing can be filled in afterwards from the game screen.
+
+```bash
+curl -X POST --data-binary @night.csv -H 'Content-Type: text/csv' \
+     http://localhost:8000/games/import
+```
+
+Players are matched to the roster by alias, ignoring case, and **never
+created** — a name that is not registered stops the import and the reply lists
+the ones that are. A player invented from a misread name would be permanent,
+silent, and would turn up in the hall of fame.
+
+The expected producer of these files is machine vision reading a photograph,
+which fails quietly: a misread digit, a strike-through that did not register, or
+a row shifted by one column all yield a tidy table describing a game nobody
+played. So three things are checked that the transcriber cannot check itself —
+that a square's number and its strike agree, that the winning bids in round N do
+not add up to more than the N tricks it deals, and that the totals row agrees
+with the rounds above it. When a column does not add up, the round whose square
+would account for the difference is named, since that is usually the one that was
+misread.
+
+**A file that reads but does not add up is imported anyway**, with its doubts
+attached. Refusing was the first answer and the wrong one: none of these
+disagreements can be settled without looking at the paper, and refusing leaves
+the person holding the paper with nothing on screen to correct. The warnings are
+stored on the game (`games.import_warnings`) and shown in a banner over the
+matrix, next to the squares in question; **CHECKED AGAINST THE PAPER** clears it
+via `POST /games/{id}/acknowledge-import`. A file that cannot be *read* is still
+refused — there is nothing to load. `?strict=true` refuses on the arithmetic too,
+for a caller that would rather fix the file; `?dry_run=true` reports without
+writing.
+
+`backend/transcription_prompt.md` is the instruction handed to whatever model
+does the transcribing. It describes the sheet as a grid of numbers and states
+the same four checks as arithmetic, without mentioning cards — a transcriber
+that knows the game is a transcriber that will help the numbers along, and its
+one job is to copy digits and report what does not add up rather than repair it.
+
+An imported game arrives **unfinished** however complete the file is. Somebody
+compares it against the paper and presses FINISH; until then it counts towards
+nobody's record.
+
+`GET /games/{id}/export.csv` writes the same format back out, and what it writes
+can be posted straight back to `/games/import` — which is also how the two
+halves are tested against each other.
+
+The format lives in `backend/game_csv.py`, which knows nothing about the
+database; `backend/services/csv_service.py` knows about the database and
+nothing about the format.
+
 ## Database Schema
 
 ### Players
@@ -195,6 +294,10 @@ The UI offers three — parent, child, partner — stored in two tables, because
 - `total_rounds`: Number of rounds
 - `current_round`: Current round number
 - `is_active`: Whether game is in progress
+- `import_warnings`: What a game read off a score sheet arrived unsure about,
+  one doubt per line, null for a game entered by hand or one whose warnings have
+  been acknowledged. Stored rather than returned once because the person who
+  runs the import is not always the person holding the paper.
 
 ### Game players
 - `game_id`, `player_id`: who is playing what, together the primary key
@@ -202,6 +305,10 @@ The UI offers three — parent, child, partner — stored in two tables, because
   display preference — the matrix marks round N as belonging to seat
   N % players, so the seating is what says who bids first. It is set from the
   order players were picked in, and changed with `PUT /games/{id}/player-order`.
+  Removing a player from a game renumbers what is left, so seats always run
+  0..n-1 with nothing missing — a seat is a position in the rotation, not a
+  label, and a hole in the numbering would leave a four-handed game rotating as
+  though it were still five.
 
 ### Rounds
 - `id`: Primary key
@@ -233,7 +340,19 @@ The UI offers three — parent, child, partner — stored in two tables, because
 - `PUT /games/{id}/player-order` - Reseat the players. The body is
   `{"player_ids": [...]}` and must list exactly this game's roster, in order;
   a partial list is refused because the seats it omits would have no home.
+- `DELETE /games/{id}/players/{player_id}` - Take a player out of this game as
+  though they had never been in it. Their rounds in it are deleted and the
+  seats close up, renumbering the priority rotation. Refused if it would leave
+  the game with fewer than two players. The player stays on the roster.
 - `GET /games/{id}/stats` - Game statistics, in seat order
+- `GET /games/{id}/export.csv` - The game as the table it would be drawn as on
+  paper (see [Games on paper](#games-on-paper))
+- `POST /games/import` - Create a game from such a table. The body is the file
+  itself, not JSON. A file whose arithmetic does not hold is imported with its
+  warnings attached; `?strict=true` refuses it instead, and `?dry_run=true`
+  checks and reports without writing.
+- `POST /games/{id}/acknowledge-import` - Clear the warnings a game was imported
+  with, once somebody has held the paper next to the table.
 
 ### Hall of fame
 - `GET /hall-of-fame` - Yearly tournament winners, all-time records, album link

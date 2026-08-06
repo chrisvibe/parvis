@@ -237,6 +237,111 @@ class TestSeating:
         assert "two seats" in response.json()["detail"]
 
 
+class TestRemovingAPlayer:
+    """
+    Somebody who could not finish comes out of the game entirely, as though
+    they had never been in it — the game is recorded as the one that was played,
+    by the people who played it through.
+
+    The seating is the part with teeth. Round N belongs to seat N % players, so
+    a game that is now four-handed has to be numbered four-handed or the
+    priority highlight points at the wrong person for every round of it.
+    """
+
+    def _game(self, client, players=(1, 2, 3), rounds=5):
+        return client.post("/games", json={
+            "player_ids": list(players), "total_rounds": rounds,
+        }).json()["id"]
+
+    def _bet(self, client, game_id, round_number, player_id, bet, success=True):
+        return client.post(f"/games/{game_id}/rounds/upsert", params={
+            "round_number": round_number, "player_id": player_id,
+            "bet": bet, "success": success,
+        })
+
+    def _stats(self, client, game_id):
+        return client.get(f"/games/{game_id}/stats").json()
+
+    def test_they_are_gone_from_the_roster(self, roster, client):
+        game_id = self._game(client)
+
+        response = client.delete(f"/games/{game_id}/players/1")
+
+        assert response.status_code == 200
+        assert [row["player_alias"] for row in self._stats(client, game_id)] == ["ben", "cleo"]
+
+    def test_everything_they_bet_in_that_game_goes_with_them(self, roster, client):
+        game_id = self._game(client)
+        for round_number in (1, 2, 3):
+            self._bet(client, game_id, round_number, 1, 1)
+
+        response = client.delete(f"/games/{game_id}/players/1")
+
+        assert response.json()["rounds_removed"] == 3
+        assert all(r["player_id"] != 1
+                   for r in client.get(f"/games/{game_id}/rounds").json())
+
+    def test_the_seats_close_up_behind_them(self, roster, client):
+        """
+        The whole reason this renumbers. Leaving a hole at seat 0 would keep the
+        game three-handed as far as the rotation is concerned.
+        """
+        game_id = self._game(client)
+
+        client.delete(f"/games/{game_id}/players/1")
+
+        assert [row["seat"] for row in self._stats(client, game_id)] == [0, 1]
+
+    def test_removing_from_the_middle_keeps_the_order_of_the_rest(self, roster, client):
+        game_id = self._game(client, players=(3, 1, 2))
+
+        client.delete(f"/games/{game_id}/players/1")
+
+        stats = self._stats(client, game_id)
+        assert [row["player_alias"] for row in stats] == ["cleo", "ben"]
+        assert [row["seat"] for row in stats] == [0, 1]
+
+    def test_nobody_elses_score_is_touched(self, roster, client):
+        game_id = self._game(client)
+        self._bet(client, game_id, 1, 1, 1)
+        self._bet(client, game_id, 3, 2, 3)
+
+        client.delete(f"/games/{game_id}/players/1")
+
+        ben = next(row for row in self._stats(client, game_id)
+                   if row["player_alias"] == "ben")
+        assert ben["total_score"] == 13
+
+    def test_they_can_be_added_to_a_later_game_as_normal(self, roster, client):
+        """
+        This is about one game, not about the player. Removing them from a
+        night out is not a ban.
+        """
+        first = self._game(client)
+        client.delete(f"/games/{first}/players/1")
+
+        second = self._game(client, players=(1, 2))
+        assert self._bet(client, second, 1, 1, 1).status_code == 200
+
+    def test_somebody_who_is_not_in_the_game_cannot_be_removed(self, roster, client):
+        game_id = self._game(client, players=(1, 2))
+
+        assert client.delete(f"/games/{game_id}/players/3").status_code == 404
+
+    def test_a_game_cannot_be_cut_below_two_players(self, roster, client):
+        """
+        One player left is not a shorter game but an abandoned one, and CANCEL
+        or DELETE says that without pretending there are results.
+        """
+        game_id = self._game(client, players=(1, 2))
+
+        response = client.delete(f"/games/{game_id}/players/1")
+
+        assert response.status_code == 400
+        assert "at least two players" in response.json()["detail"]
+        assert len(self._stats(client, game_id)) == 2
+
+
 class TestHallOfFameEndpoint:
 
     @pytest.fixture(autouse=True)

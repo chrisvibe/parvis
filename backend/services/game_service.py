@@ -207,6 +207,27 @@ class GameService:
         self.db.refresh(game)
         return game
     
+    def acknowledge_import(self, game_id: int) -> Game:
+        """
+        Clear the doubts a transcribed game arrived with.
+
+        Deliberately its own action rather than something that happens the
+        first time anybody edits the game: the warnings say the table might not
+        match the paper, and only a person holding the paper can answer that.
+        Clearing them is that answer, and it should take saying so.
+
+        Args:
+            game_id: ID of the game
+
+        Returns:
+            Updated Game instance
+        """
+        game = get_game_or_404(game_id, self.db)
+        game.import_warnings = None
+        self.db.commit()
+        self.db.refresh(game)
+        return game
+
     def adjust_rounds(self, game_id: int, new_total: int) -> dict:
         """
         Adjust the total number of rounds in a game.
@@ -312,6 +333,72 @@ class GameService:
 
         self.db.commit()
         return list(player_ids)
+
+    def remove_player(self, game_id: int, player_id: int) -> dict:
+        """
+        Take a player out of a game as though they had never been in it.
+
+        Somebody who could not finish is not recorded as having played a shorter
+        game; the game is recorded as the one that was played, by the people who
+        played it through. Their rounds go with them.
+
+        The seats then close up behind them, and that is the part that matters
+        beyond tidiness: the matrix reads round N as belonging to seat
+        N % players, so a game that is now four-handed has to be numbered
+        four-handed or the priority highlight points at the wrong person for
+        every round of it, including the ones already played.
+
+        Args:
+            game_id: ID of the game
+            player_id: the player to remove
+
+        Returns:
+            Dictionary with the rounds removed and the seating that is left
+
+        Raises:
+            HTTPException: 404 if the player is not in this game, 400 if the
+                game would be left with fewer than two players
+        """
+        get_game_or_404(game_id, self.db)
+
+        seated = self.db.query(GamePlayer)\
+            .filter(GamePlayer.game_id == game_id)\
+            .order_by(GamePlayer.seat, GamePlayer.player_id).all()
+
+        leaving = next((gp for gp in seated if gp.player_id == player_id), None)
+        if leaving is None:
+            raise HTTPException(
+                status_code=404, detail="That player is not in this game."
+            )
+
+        # Cards need two. One player left is not a shorter game but an abandoned
+        # one, and CANCEL or DELETE says that without pretending there are
+        # results.
+        if len(seated) <= 2:
+            raise HTTPException(
+                status_code=400,
+                detail="A game needs at least two players. Cancel or delete it instead.",
+            )
+
+        dropped = self.db.query(Round).filter(
+            Round.game_id == game_id,
+            Round.player_id == player_id,
+        ).delete(synchronize_session=False)
+
+        self.db.delete(leaving)
+
+        # Seats run 0..n-1 with nothing missing, because a seat is a position in
+        # the rotation rather than a label.
+        remaining = [gp for gp in seated if gp.player_id != player_id]
+        for seat, gp in enumerate(remaining):
+            gp.seat = seat
+
+        self.db.commit()
+        return {
+            "player_id": player_id,
+            "rounds_removed": dropped,
+            "player_ids": [gp.player_id for gp in remaining],
+        }
 
     def get_game_stats(self, game_id: int) -> List[GameStats]:
         """

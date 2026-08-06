@@ -220,6 +220,59 @@ export function useGameActions(activeGame, loadGameData, clearGame, navigate, se
     }
   }, [activeGame, loadGameData, setGameStats]);
 
+  /**
+   * Take someone out of the game.
+   *
+   * For the player who was there at the start and could not see it through. The
+   * game is then recorded as the one that was actually played, by the people
+   * who played it through: their bets go with them and the seats close up, so
+   * the priority rotation is renumbered for whoever is left — including on the
+   * rounds already entered, because those rounds were four-handed too.
+   *
+   * That last part is why this asks first. It deletes real numbers, and it
+   * quietly changes whose round it was in every row above.
+   */
+  const evictPlayer = useCallback(async (playerId, playerAlias) => {
+    if (!activeGame) return;
+
+    if (!window.confirm(
+      `Remove ${playerAlias} from this game? Everything they bet in it is ` +
+      `deleted and the game is scored as if they had never been in it, ` +
+      `including whose round it is. They stay on the player list.`
+    )) {
+      return;
+    }
+
+    try {
+      await gamesApi.removePlayer(activeGame.id, playerId);
+      await loadGameData(activeGame.id);
+    } catch (error) {
+      console.error('Error removing player from game:', error);
+      // The server's own words where it has any — it is the side that knows
+      // why, and "a game needs at least two players" is worth reading.
+      alert(error.response?.data?.detail || 'Could not remove that player from the game.');
+    }
+  }, [activeGame, loadGameData]);
+
+  /**
+   * Take the banner off a game that was read in from a score sheet.
+   *
+   * No confirmation, unlike eviction: nothing is lost by clearing it and the
+   * game itself is untouched. If it turns out to have been premature, importing
+   * the file again brings the warnings back with it.
+   */
+  const acknowledgeImport = useCallback(async () => {
+    if (!activeGame) return;
+
+    try {
+      await gamesApi.acknowledgeImport(activeGame.id);
+      await loadGameData(activeGame.id);
+    } catch (error) {
+      console.error('Error acknowledging imported game:', error);
+      alert(error.response?.data?.detail || 'Could not clear those warnings.');
+    }
+  }, [activeGame, loadGameData]);
+
   return {
     createGame,
     updateRound,
@@ -229,5 +282,7 @@ export function useGameActions(activeGame, loadGameData, clearGame, navigate, se
     adjustRounds,
     editMetadata,
     reorderPlayers,
+    evictPlayer,
+    acknowledgeImport,
   };
 }

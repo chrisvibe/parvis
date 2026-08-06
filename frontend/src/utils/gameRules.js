@@ -15,3 +15,19 @@ import { getSetting } from './settings';
  * anything yet" — provisional either way, and settable back in settings.yaml.
  */
 export const defaultSuccess = () => getSetting('game.default_success', true);
+
+/**
+ * Whether a part-typed bet is one the round could hold.
+ *
+ * Round N deals N cards, so N is the most anybody can bid in it. The check runs
+ * on every keystroke rather than on commit, which is why it has to accept the
+ * empty string: clearing the box on the way to typing a different number is not
+ * an illegal bet, it is halfway through entering one.
+ *
+ * Shared by the two ways a digit reaches a cell — typing into an open editor,
+ * and typing at a cell that is merely focused, which opens the editor on that
+ * digit. The two disagreeing would mean a bet the keyboard could enter and the
+ * mouse could not.
+ */
+export const betIsAllowed = (value, roundNumber) =>
+  value === '' || (/^\d+$/.test(value) && parseInt(value, 10) <= roundNumber);

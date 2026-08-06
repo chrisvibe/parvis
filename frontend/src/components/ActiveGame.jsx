@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import GameMatrix from './GameMatrix';
 import GameControls from './GameControls';
 import GameMetadataEditor from './GameMetadataEditor';
+import ImportWarnings from './ImportWarnings';
 import ScoreChart from './ScoreChart';
 import Leaderboard from './Leaderboard';
 
@@ -23,6 +24,11 @@ import Leaderboard from './Leaderboard';
  * @param {Function} onFinishGame - Handler for finish game
  * @param {Function} onReorderPlayers - Receives the player ids in their new
  *        seating order
+ * @param {Function} onEvictPlayer - Takes a player out of the game as though
+ *        they had never been in it. Receives their id and alias, and asks
+ *        before doing anything.
+ * @param {Function} onAcknowledgeImport - Clears the warnings a transcribed
+ *        game arrived with, once somebody has checked it against the paper.
  */
 function ActiveGame({
   game,
@@ -37,6 +43,8 @@ function ActiveGame({
   onDeleteGame,
   onFinishGame,
   onReorderPlayers,
+  onEvictPlayer,
+  onAcknowledgeImport,
 }) {
   const [editingMetadata, setEditingMetadata] = useState(false);
 
@@ -69,6 +77,11 @@ function ActiveGame({
         />
       )}
 
+      <ImportWarnings
+        warnings={game.import_warnings}
+        onAcknowledge={onAcknowledgeImport}
+      />
+
       <GameMatrix
         game={game}
         players={gameStats}
@@ -77,6 +90,7 @@ function ActiveGame({
         onReload={onReload}
         onFinishGame={onFinishGame}
         onReorderPlayers={onReorderPlayers}
+        onEvictPlayer={onEvictPlayer}
       />
 
       <ScoreChart

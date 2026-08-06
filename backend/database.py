@@ -133,7 +133,18 @@ class Game(Base):
     current_round = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
     is_valid = Column(Boolean, default=False)  # Only true when finished successfully
-    
+
+    # What the arithmetic checks found when this game was read in from a
+    # transcribed score sheet, one doubt per line. Null for a game that was
+    # entered by hand, and for an imported one that read cleanly.
+    #
+    # Stored rather than only returned from the import call because the person
+    # who can settle these is not the one who ran the import: they are holding
+    # the paper, in front of the matrix, some time later. The active game screen
+    # shows it over the table until somebody says it is right.
+    import_warnings = Column(String, nullable=True)
+
+
     players = relationship("GamePlayer", back_populates="game")
     rounds = relationship("Round", back_populates="game")
 
