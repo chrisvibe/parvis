@@ -1,48 +1,39 @@
 # About Parvis
 
-Parvis is a betting game tracker designed to record and analyze games played among friends and family.
+Parvis is a betting game tracker for recording and analyzing games played among friends and family.
 
 ## How to Play
 
-Easy to learn, hard to stop. Here is the whole game.
-
 ### The rounds
 
-A game is a series of rounds, and every round is one card longer than the last. Round 1 deals a single card to everybody, round 2 deals two, and so on. A round dealt N cards has exactly N tricks in it, so there are N to go around and no more.
+A game is a series of rounds. Round 1 deals one card to each player, round 2 deals two, and so on. A round dealt N cards has exactly N tricks.
 
 ### Betting
 
-Once you have looked at your hand, and before anybody plays a card, everyone says how many tricks they expect to take. In round 1 that is 0 or 1. In round 7 it is anything from 0 to 7.
+After looking at your hand, and before any card is played, each player states how many tricks they expect to take. In round N a bet is any number from 0 to N, including 0.
 
-Betting nothing is a real bet, and often a good one. What the bets add up to does not have to match the number of tricks, and usually will not — somebody is going to be disappointed, and working out who is most of the fun.
+The bets do not have to add up to the number of tricks available.
 
 ### Playing the cards
 
-Whoever bet highest leads the first card of the round. If two people bet the same, the one nearest the priority mark leads: nearness is counted rightwards from the mark, so the first of them you reach going right is the one who starts. The mark moves one seat along each round, so the advantage travels round the table rather than living with one person.
+The player who bet highest leads the first card of the round. If two players bet the same, the tie goes to the one nearest the priority mark, counted rightwards from it. The mark moves one seat each round.
 
-Then everyone plays a card, in turn, and the rules for what you may play are short:
+Each player then plays one card in turn:
 
-- If you have a card in the suit that was led, you must play one.
-- If you have none of it, play whatever you like.
-- Only cards in the suit that was led can win the trick. Anything else is thrown away, however grand it looks.
-- Ace is high and 2 is low.
+- If you hold a card in the suit that was led, you must play one.
+- If you do not, you may play any card.
+- Only cards in the suit that was led can win the trick.
+- Ace is high, 2 is low.
 
-The highest card in the led suit takes the trick, and whoever takes it leads the next one. Carry on until the hands are empty, then count up what everybody actually took.
+The highest card in the led suit takes the trick, and its winner leads the next trick. This continues until all cards have been played.
 
 ### Scoring
 
-You score if you took exactly what you bet. Not one more, not one fewer.
+A player scores only by taking exactly the number of tricks they bet.
 
-- Made it: 10 points plus your bet. Betting 0 and taking nothing is worth 10. Betting 5 and taking 5 is worth 15.
-- Missed it: nothing at all. Being one over costs you exactly as much as being four under.
+- Exact: 10 points plus the bet. A bet of 0 scores 10, a bet of 5 scores 15.
+- Anything else: 0 points. Taking more than the bet scores the same as taking fewer.
 
-This is why, on a paper score sheet, a bet that comes off gets a 1 written in front of it — a bet of 5 becomes 15, which is the score — and a bet that goes down is simply crossed out and left as it was.
+On a paper score sheet a successful bet is written with a 1 in front of it, so a bet of 5 becomes 15, which is the score. A failed bet is crossed out and left as written.
 
 The player with the highest total after the final round wins.
-
-### The short version
-
-- Round N deals N cards each, and has N tricks.
-- Bet how many you will take, from 0 to N.
-- Follow suit if you can. Only the led suit wins. Ace high, 2 low.
-- Exactly right scores 10 plus your bet. Anything else scores nothing.

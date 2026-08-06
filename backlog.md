@@ -264,9 +264,15 @@ so it can be picked up cold.
       looking at your hand, the highest bidder leading and ties going to the
       player nearest the priority mark counting rightwards, following suit,
       only the led suit winning, ace high and 2 low, and exact-or-nothing
-      scoring — plus a four-line short version at the end. It also explains why
-      a made bid gets a 1 written in front of it on paper, which is the same
-      fact the CSV format is built on.
+      scoring. It also explains why a made bid gets a 1 written in front of it
+      on paper, which is the same fact the CSV format is built on.
+
+      **Rewritten plainly** *(2026-08-06)*, at Chris's request: the first
+      version was chatty — asides about who would be disappointed, cards being
+      thrown away however grand they looked, a summary repeating what the page
+      had just said. A rules page is read once by somebody trying to play, and
+      every clause that is not a rule is in their way. Same rules, no
+      commentary, no closing summary.
 
 - [x] **No logout.** *(fixed 2026-08-05)* The site password was kept in local
       storage with no way to clear it from the UI; it only cleared on a 401.
